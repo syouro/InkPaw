@@ -1,58 +1,69 @@
 # InkPaw 🐾
 
+English | [简体中文](README.zh-CN.md)
+
 > A tiny, meticulous DOCX toolkit for AI agents. Models write; InkPaw keeps the document correct.
 
-InkPaw（墨爪）是一个面向 AI Agent 的 Word 文档生成、修改、校验和渲染工具，同时提供 MCP Server 与可独立使用的渲染层。
+InkPaw is a Word document generation, editing, validation, and rendering toolkit for AI agents. It provides an MCP server, a protocol-independent renderer, and a local web Playground for trying the complete agent workflow.
 
-核心思路很简单：**模型只处理内容和结构，确定性代码负责编号、样式、引用、OOXML 正确性与输出验证。**
+The design principle is simple: **the model owns content and structure; deterministic code owns numbering, styles, references, OOXML correctness, and output validation.**
 
-## Why InkPaw?
+## Try the Playground
 
-LLM 能写出很好的内容，但直接让模型操作 Word 排版细节，很容易出现编号断裂、样式漂移、引用失效或文件无法打开。InkPaw 用一个持久化的结构化文档模型（def JSON）把两者分开：
-
-- Agent 创建标题、段落、表格、图片、公式、脚注和分节。
-- InkPaw 生成编号、交叉引用、目录、样式与 OOXML。
-- 稳定节点 ID 让 Agent 能跨轮次精确查询、更新、移动和删除内容。
-- 校验器返回带位置、修复建议和权威示例的结构化问题，便于 Agent 自我修正。
-
-## Features
-
-- 结构化建档与 Markdown 建档。
-- 节点级 insert / update / move / delete，SQLite 持久化。
-- 服务端自动编号、图表题、交叉引用和静态/原生目录。
-- preset → style profile → document 的三层样式合并。
-- 表格合并、页眉页脚、脚注、批注、复选框、公式、浮动图和多 section。
-- DOCX / PDF / 逐页 PNG 输出。
-- OPC 完整性、ECMA-376 Schema 与 Word 兼容陷阱三层校验。
-- stdio 与无状态 Streamable HTTP 两种 MCP 传输。
-- HTTP Bearer 鉴权与可选的多用户存储作用域。
-
-## Requirements
-
-- Node.js 18+
-- npm
-- LibreOffice Writer + Math（完整测试套件与 PDF/PNG 预览需要；仅使用核心 DOCX 生成时可不安装）
-- 可选：poppler-utils（将 PDF 转成逐页 PNG）
-- 可选：xmllint + xsltproc（完整 OOXML Schema 校验）
-
-## Quick start
+The fastest way to experience InkPaw is the local experimental Playground:
 
 ```bash
 git clone https://github.com/syouro/InkPaw.git
 cd InkPaw
 npm install
-npm test
+npm run playground
 ```
 
-### MCP over stdio
+Open `http://127.0.0.1:8766`, enter an OpenAI-compatible base URL, model name, and API key, then ask the agent to create a document.
 
-InkPaw 默认以 stdio 启动：
+The Playground shows streaming reasoning and tool activity, renders page previews, supports follow-up edits and templates, and provides DOCX/PDF downloads. It binds to localhost by default and is intended for local evaluation—not direct public deployment. Full page preview requires LibreOffice and poppler-utils. See [Playground guide](docs/playground.md).
+
+## Why InkPaw?
+
+LLMs can write strong content, but asking a model to control Word layout details directly often causes broken numbering, drifting styles, invalid references, or documents that fail to open. InkPaw separates those concerns with a persistent structured document model (`def` JSON):
+
+- Agents create headings, paragraphs, tables, images, equations, footnotes, comments, and sections.
+- InkPaw generates numbering, captions, cross-references, tables of contents, styles, and OOXML.
+- Stable node IDs allow precise query, update, move, and delete operations across agent turns.
+- Structured validation issues include locations, repair guidance, and authoritative examples for self-correction.
+
+## Features
+
+- Structured document creation and Markdown import.
+- Node-level insert, update, move, and delete with SQLite persistence.
+- Automatic numbering, captions, cross-references, and static or native TOCs.
+- Three-layer styling: preset → style profile → document overrides.
+- Table spans, headers/footers, footnotes, comments, checkboxes, equations, floating images, and multiple sections.
+- DOCX, PDF, and per-page PNG output.
+- Three validation layers: OPC integrity, ECMA-376 Schema, and Word compatibility checks.
+- MCP over stdio or stateless Streamable HTTP.
+- HTTP Bearer authentication and optional per-user storage scopes.
+- Local BYOK Playground with streaming Agent Loop, MCP tools, previews, and downloads.
+
+## Requirements
+
+- Node.js 18+
+- npm
+- LibreOffice Writer + Math for the complete test suite and PDF/PNG previews
+- Optional: poppler-utils for per-page PNG conversion
+- Optional: xmllint + xsltproc for complete OOXML Schema validation
+
+Core DOCX generation does not require LibreOffice.
+
+## MCP quick start
+
+InkPaw starts with stdio transport by default:
 
 ```bash
 npm start
 ```
 
-通用 MCP 客户端配置示例：
+Example MCP client configuration:
 
 ```json
 {
@@ -71,11 +82,11 @@ npm start
 npm run start:http
 ```
 
-默认端点为 `http://127.0.0.1:8765/mcp`，并强制 Bearer 鉴权。首次启动会生成 `data/mcp-token`；也可用 `DOCX_MCP_TOKEN` 显式设置。
+The default endpoint is `http://127.0.0.1:8765/mcp` and requires Bearer authentication. On first start, InkPaw creates `data/mcp-token`; you may also set `DOCX_MCP_TOKEN` explicitly.
 
 ### Renderer only
 
-渲染层不依赖 MCP 或 SQLite，可单独使用：
+The renderer does not depend on MCP or SQLite:
 
 ```bash
 npm run demo
@@ -91,30 +102,46 @@ scripts/docx2png.sh path/to/file.docx
 npm run visual
 ```
 
-`npm run visual` 受 LibreOffice 版本与字体影响，基线只应在人工确认视觉输出后更新。
+Visual baselines depend on LibreOffice and installed fonts. Update them only after manually reviewing the rendered pages.
 
 ## Architecture
 
 ```text
+MCP client or local Playground
+              │
+              ▼
 MCP transport (stdio / HTTP)
-            │
-            ▼
+              │
+              ▼
 Service + validator + SQLite store
-            │
-            ▼
+              │
+              ▼
 Transform (numbering / refs / captions)
-            │
-            ▼
+              │
+              ▼
 Protocol-independent DOCX renderer
-            │
-            ▼
+              │
+              ▼
 DOCX / PDF / PNG + validation feedback
 ```
 
-详见 [docs/architecture.md](docs/architecture.md)。
+See [Architecture](docs/architecture.md) for the module boundaries and invariants.
+
+## Repository layout
+
+```text
+src/          core renderer, MCP server, service, storage, and validation
+playground/   experimental local web Agent experience
+scripts/      launch, validation, rendering, and visual-regression tools
+test/         unit and integration tests
+presets/      reusable style presets
+schemas/      OOXML validation assets
+docs/         architecture, specifications, compatibility, and release policy
+```
 
 ## Documentation
 
+- [Playground](docs/playground.md)
 - [Architecture](docs/architecture.md)
 - [Document node specification](docs/docxUtil-spec.md)
 - [Viewer compatibility](docs/compatibility.md)
@@ -124,9 +151,9 @@ DOCX / PDF / PNG + validation feedback
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
 
-## Project scope
+## Project status
 
-InkPaw 首个公开版本只包含 DOCX/MCP 核心。不包含私有部署配置、用户数据、历史业务样例或可选 Web Agent 应用。
+The core DOCX/MCP toolkit is the primary project. The Playground is marked experimental because its API and interface may change and its default security boundary is localhost. It is tested, but it is not a turnkey multi-tenant public SaaS deployment.
 
 ## License
 

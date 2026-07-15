@@ -27,6 +27,8 @@
   "scripts": {
     "start": "node src/server.js",
     "start:http": "node src/server.js --http",
+    "playground": "node scripts/start-playground.js",
+    "playground:server": "node playground/server.js",
     "test": "node --test",
     "demo": "node src/docxUtil.js render examples/demo-report.js",
     "validate": "node scripts/docx-validate.js",
@@ -37,9 +39,11 @@
     "better-sqlite3": "^11.0.0",
     "dayjs": "^1.11.10",
     "docx": "^8.5.0",
+    "express": "^5.2.1",
     "image-size": "^2.0.2",
     "jszip": "^3.10.1",
     "markdown-it": "^14.3.0",
-    "markdown-it-footnote": "^4.0.0"
+    "markdown-it-footnote": "^4.0.0",
+    "openai": "^6.47.0"
   }
 }

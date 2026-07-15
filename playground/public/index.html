@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InkPaw Playground</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="side-head">
+      <span class="brand"><strong>🐾 InkPaw</strong><small>Local Playground · Experimental</small></span>
+      <button id="btn-new" title="新对话">＋</button>
+    </div>
+    <div id="session-list"></div>
+    <div class="side-sec">
+      <span>模板</span>
+      <button id="btn-upload-tpl" title="上传 .docx/.dotx 模板（正文用 {{槽名}} 占位）">⬆</button>
+      <input type="file" id="tpl-file" accept=".docx,.dotx" hidden>
+    </div>
+    <div id="template-list"></div>
+    <button id="btn-settings">⚙ 模型设置</button>
+  </aside>
+
+  <main id="chat-pane">
+    <div id="messages"></div>
+    <div id="composer">
+      <textarea id="input" rows="2" placeholder="描述你要的文档，比如：帮我写一份 6 月项目月报…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <button id="btn-send">发送</button>
+    </div>
+  </main>
+
+  <aside id="preview-pane">
+    <div class="preview-head">
+      <span>文档预览</span>
+      <span id="dl-buttons"></span>
+    </div>
+    <div id="preview-pages"><div class="preview-empty">渲染后这里会显示每页预览</div></div>
+  </aside>
+</div>
+
+<dialog id="settings-dialog">
+  <form method="dialog" id="settings-form">
+    <h3>模型设置（仅存于你的浏览器）</h3>
+    <label>接口地址（OpenAI 兼容）<input name="baseURL" placeholder="https://api.example.com/v1" required></label>
+    <label>模型<input name="model" placeholder="your-model-name" required></label>
+    <label>API Key<input name="apiKey" type="password" placeholder="sk-…" required></label>
+    <label class="row"><input name="thinking" type="checkbox"> 开启深度思考（DeepSeek thinking 扩展参数，其他服务商勿勾选）</label>
+    <p class="hint">Key 只保存在本浏览器 localStorage，并由本地 Playground 转发到所填接口；服务端不落库、不写日志。</p>
+    <h3>身份恢复码</h3>
+    <div class="identity-row"><code id="identity-code"></code></div>
+    <div class="identity-actions">
+      <button type="button" id="btn-code-show">显示</button>
+      <button type="button" id="btn-code-copy">复制</button>
+      <button type="button" id="btn-code-import">导入恢复码</button>
+      <button type="button" id="btn-code-new">创建新身份</button>
+    </div>
+    <p class="hint">恢复码是找回你的会话、文档和模板的唯一凭证（服务器只存哈希，丢失无法找回）。换浏览器/设备前先复制保存。</p>
+    <div class="dialog-actions">
+      <button value="cancel" formnovalidate>取消</button>
+      <button value="ok" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/vendor/markdown-it.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

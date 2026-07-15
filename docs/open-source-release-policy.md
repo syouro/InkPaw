@@ -32,12 +32,13 @@
 - `test/`：不包含现实业务数据的单元、集成和视觉基线测试。
 - `presets/`：通用样式预设，不得使用客户品牌、公司标识或商业模板。
 - `examples/`：仅使用虚构或公开数据的最小可运行示例。
+- `playground/`：经过品牌、隐私和安全边界清理的本地体验入口；默认仅监听 loopback，不包含公网部署配置。
 - `scripts/`：不包含本机绝对路径、私有服务器或凭证的通用验证工具。
 - `schemas/`：只在再分发条件确认后纳入，并在第三方声明中记录来源和本地修改。
 - `docs/`：经重写的公开设计、使用、兼容性和贡献文档。
 - `README.md`、`package.json`、`package-lock.json`、`.gitignore` 和已清理的 GitHub Actions workflow。
 
-`webchat/` 不进入首个公开版本。如后续发布，必须单独完成安全、隐私、模型凭证处理、多用户隔离和通用部署文档审核。
+私有仓的 `webchat/` 不得原样复制。若迁移为公开 `playground/`，必须完成品牌清理、模型凭证处理、多用户隔离、测试和本地安全边界审核；公网部署仍须另行完成 SSRF、限流、滥用防护、来源控制和数据保留设计。
 
 ## 4. 禁止发布清单
 
@@ -124,7 +125,8 @@
 ## 11. Release 最终检查表
 
 - [ ] 公开仓不含私有仓历史。
-- [ ] `reference/`、`data/`、`webchat/` 未进入首发版本。
+- [ ] `reference/`、运行时 `data/` 和私有 `webchat/` 部署材料未进入首发版本。
+- [ ] `playground/` 默认只监听 loopback，且已明确标注不应直接公网部署。
 - [ ] 无客户/公司数据、人员信息、生产环境和敏感凭证。
 - [ ] 所有示例均为虚构或公开数据。
 - [ ] LICENSE、THIRD_PARTY_NOTICES、SECURITY 和 CONTRIBUTING 已完成；若必要，NOTICE 已完成。

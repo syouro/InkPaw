@@ -12,10 +12,12 @@ The source distribution references these direct npm dependencies; their complete
 | `better-sqlite3` | 11.10.0 | MIT |
 | `dayjs` | 1.11.21 | MIT |
 | `docx` | 8.5.0 | MIT |
+| `express` | 5.2.1 | MIT |
 | `image-size` | 2.0.2 | MIT |
 | `jszip` | 3.10.1 | MIT OR GPL-3.0-or-later (used under MIT) |
 | `markdown-it` | 14.3.0 | MIT |
 | `markdown-it-footnote` | 4.0.0 | MIT |
+| `openai` | 6.47.0 | Apache-2.0 |
 
 Dependency copyright and license texts are distributed by their respective packages. InkPaw does not copy dependency source into this repository.
 

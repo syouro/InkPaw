@@ -15,15 +15,15 @@ InkPaw 的公开仓与私有开发仓使用独立 Git 历史。本文件记录�
 
 ## Snapshot boundary
 
-The public snapshot includes the protocol-independent renderer, MCP server, service layer, validators, SQLite store, presets, generic examples, test suites, OOXML validation assets, and sanitized public documentation.
+The public snapshot includes the protocol-independent renderer, MCP server, service layer, validators, SQLite store, presets, generic examples, test suites, OOXML validation assets, sanitized public documentation, and a curated local Playground migrated from the private `webchat/` implementation.
 
 It intentionally excludes:
 
 - the private repository's Git history;
 - `reference/` legacy business/report code;
 - runtime `data/`, generated documents, databases, tokens and backups;
-- the optional `webchat/` application and its tests;
-- production deployment notes, private operational history and internal agent instructions;
+- private WebChat deployment topology and production operations material;
+- private operational history and internal agent instructions;
 - customer, company or personally identifying data.
 
 ## Updating from the private source
