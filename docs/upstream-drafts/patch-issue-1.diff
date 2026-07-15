@@ -1,0 +1,30 @@
+diff --git a/src/file/paragraph/properties.ts b/src/file/paragraph/properties.ts
+--- a/src/file/paragraph/properties.ts
++++ b/src/file/paragraph/properties.ts
+@@ -260,9 +260,11 @@
+             this.push(createParagraphStyle(options.heading));
+         }
+
+-        if (options.bullet) {
++        // CT_PPr allows at most one pStyle: an explicit style/heading must win,
++        // mirroring the guard on the numbering path below.
++        if (options.bullet && !options.style && !options.heading) {
+             this.push(createParagraphStyle("ListParagraph"));
+         }
+
+         if (options.numbering) {
+             if (!options.style && !options.heading) {
+diff --git a/src/file/paragraph/properties.spec.ts b/src/file/paragraph/properties.spec.ts
+--- a/src/file/paragraph/properties.spec.ts
++++ b/src/file/paragraph/properties.spec.ts
+@@ -TEST-LOCATION @@
++        it("should emit only the explicit style when both style and bullet are set", () => {
++            const properties = new ParagraphProperties({
++                style: "myStyle",
++                bullet: { level: 0 },
++            });
++            const tree = new Formatter().format(properties);
++            const pStyles = tree["w:pPr"].filter((child: object) => "w:pStyle" in child);
++            expect(pStyles).to.have.lengthOf(1);
++            expect(pStyles[0]).to.deep.equal({ "w:pStyle": { _attr: { "w:val": "myStyle" } } });
++        });

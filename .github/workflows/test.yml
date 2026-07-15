@@ -1,0 +1,26 @@
+# 核心单元/集成测试。preview/pdf 用例走真实 LibreOffice + poppler；
+# 视觉回归基线受 LibreOffice 版本和字体影响，仅在需要时本地更新。
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install LibreOffice + poppler + CJK fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libreoffice-writer libreoffice-math poppler-utils fonts-noto-cjk
+      - run: npm ci
+      - run: npm test

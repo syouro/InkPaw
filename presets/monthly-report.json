@@ -1,0 +1,407 @@
+{
+  "name": "monthly-report",
+  "description": "月报风格：宋体小四正文、三级标题（15/14/12pt 加粗）、2.54/3.17cm 边距、页眉页脚齐全、自动编号。排版参数抄自旧月报（reference/docxUtil2.js）。",
+  "autoNumber": true,
+  "headingNumbering": {
+    "reference": "heading-num",
+    "levels": [
+      {
+        "level": 0,
+        "format": "decimal",
+        "text": "%1",
+        "alignment": "left",
+        "suffix": "space",
+        "style": {
+          "paragraph": {
+            "indent": {
+              "left": 0,
+              "hanging": 0
+            }
+          }
+        }
+      },
+      {
+        "level": 1,
+        "format": "decimal",
+        "text": "%1.%2",
+        "alignment": "left",
+        "suffix": "space",
+        "style": {
+          "paragraph": {
+            "indent": {
+              "left": 0,
+              "hanging": 0
+            }
+          }
+        }
+      },
+      {
+        "level": 2,
+        "format": "decimal",
+        "text": "%1.%2.%3",
+        "alignment": "left",
+        "suffix": "space",
+        "style": {
+          "paragraph": {
+            "indent": {
+              "left": 0,
+              "hanging": 0
+            }
+          }
+        }
+      },
+      {
+        "level": 3,
+        "format": "decimal",
+        "text": "%1.%2.%3.%4",
+        "alignment": "left",
+        "suffix": "space",
+        "style": {
+          "paragraph": {
+            "indent": {
+              "left": 0,
+              "hanging": 0
+            }
+          }
+        }
+      },
+      {
+        "level": 4,
+        "format": "decimal",
+        "text": "%1.%2.%3.%4.%5",
+        "alignment": "left",
+        "suffix": "space",
+        "style": {
+          "paragraph": {
+            "indent": {
+              "left": 0,
+              "hanging": 0
+            }
+          }
+        }
+      },
+      {
+        "level": 5,
+        "format": "decimal",
+        "text": "%1.%2.%3.%4.%5.%6",
+        "alignment": "left",
+        "suffix": "space",
+        "style": {
+          "paragraph": {
+            "indent": {
+              "left": 0,
+              "hanging": 0
+            }
+          }
+        }
+      }
+    ]
+  },
+  "meta": {
+    "font": "宋体",
+    "headerSize": 18,
+    "pageNumber": true,
+    "titlePage": true,
+    "margins": {
+      "top": "2.54cm",
+      "right": "3.17cm",
+      "bottom": "2.54cm",
+      "left": "3.17cm"
+    },
+    "styles": {
+      "paragraphStyles": [
+        {
+          "id": "mdList",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "宋体",
+            "size": 24,
+            "color": "000000"
+          },
+          "paragraph": {
+            "spacing": {
+              "line": 360,
+              "after": 0
+            },
+            "alignment": "left"
+          }
+        },
+        {
+          "id": "mdCode",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "Courier New",
+            "size": 18,
+            "color": "333333"
+          },
+          "paragraph": {
+            "spacing": {
+              "line": 240,
+              "after": 0
+            },
+            "indent": {
+              "left": 360
+            }
+          }
+        },
+        {
+          "id": "mdQuote",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "楷体",
+            "size": 24,
+            "color": "595959"
+          },
+          "paragraph": {
+            "spacing": {
+              "line": 360,
+              "after": 0
+            },
+            "indent": {
+              "left": 720
+            }
+          }
+        },
+        {
+          "id": "mdTableCell",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "宋体",
+            "size": 21
+          },
+          "paragraph": {
+            "spacing": {
+              "line": 276,
+              "after": 0
+            }
+          }
+        },
+        {
+          "id": "tocTitle",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "宋体",
+            "size": 30,
+            "bold": true,
+            "color": "000000"
+          },
+          "paragraph": {
+            "alignment": "center",
+            "spacing": {
+              "before": 240,
+              "after": 240
+            }
+          }
+        },
+        {
+          "id": "toc1",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "宋体",
+            "size": 24,
+            "color": "000000"
+          },
+          "paragraph": {
+            "spacing": {
+              "line": 360,
+              "after": 0
+            }
+          }
+        },
+        {
+          "id": "toc2",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "宋体",
+            "size": 24,
+            "color": "000000"
+          },
+          "paragraph": {
+            "spacing": {
+              "line": 360,
+              "after": 0
+            },
+            "indent": {
+              "left": 420
+            }
+          }
+        },
+        {
+          "id": "toc3",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "宋体",
+            "size": 24,
+            "color": "000000"
+          },
+          "paragraph": {
+            "spacing": {
+              "line": 360,
+              "after": 0
+            },
+            "indent": {
+              "left": 840
+            }
+          }
+        },
+        {
+          "id": "checklistItem",
+          "basedOn": "Normal",
+          "next": "Normal",
+          "run": {
+            "font": "宋体",
+            "size": 24,
+            "color": "000000"
+          },
+          "paragraph": {
+            "spacing": {
+              "line": 360,
+              "after": 0
+            }
+          }
+        }
+      ],
+      "characterStyles": [
+        {
+          "id": "mdCodeChar",
+          "run": {
+            "font": "Courier New",
+            "size": 21
+          }
+        },
+        {
+          "id": "tocEntry",
+          "run": {
+            "color": "000000"
+          }
+        }
+      ]
+    },
+    "numbering": {
+      "config": [
+        {
+          "reference": "md-ordered",
+          "levels": [
+            {
+              "level": 0,
+              "format": "decimal",
+              "text": "%1.",
+              "alignment": "left",
+              "style": {
+                "paragraph": {
+                  "indent": {
+                    "left": 720,
+                    "hanging": 360
+                  }
+                }
+              }
+            },
+            {
+              "level": 1,
+              "format": "decimal",
+              "text": "(%2)",
+              "alignment": "left",
+              "style": {
+                "paragraph": {
+                  "indent": {
+                    "left": 1440,
+                    "hanging": 360
+                  }
+                }
+              }
+            },
+            {
+              "level": 2,
+              "format": "decimal",
+              "text": "%3)",
+              "alignment": "left",
+              "style": {
+                "paragraph": {
+                  "indent": {
+                    "left": 2160,
+                    "hanging": 360
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "reference": "md-bullet",
+          "levels": [
+            {
+              "level": 0,
+              "format": "bullet",
+              "text": "•",
+              "alignment": "left",
+              "style": {
+                "paragraph": {
+                  "indent": {
+                    "left": 720,
+                    "hanging": 360
+                  }
+                }
+              }
+            },
+            {
+              "level": 1,
+              "format": "bullet",
+              "text": "◦",
+              "alignment": "left",
+              "style": {
+                "paragraph": {
+                  "indent": {
+                    "left": 1440,
+                    "hanging": 360
+                  }
+                }
+              }
+            },
+            {
+              "level": 2,
+              "format": "bullet",
+              "text": "▪",
+              "alignment": "left",
+              "style": {
+                "paragraph": {
+                  "indent": {
+                    "left": 2160,
+                    "hanging": 360
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "tableStyle": {
+      "headerTextOptions": {
+        "bold": true
+      },
+      "headerParagraphOptions": {
+        "alignment": "center"
+      }
+    }
+  },
+  "captionStyle": {
+    "textOptions": {
+      "font": "宋体",
+      "size": 20
+    },
+    "paragraphOptions": {
+      "alignment": "center"
+    }
+  },
+  "markdown": {
+    "imageMaxWidth": 480
+  }
+}
