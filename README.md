@@ -23,6 +23,12 @@ Open `http://127.0.0.1:8766`, enter an OpenAI-compatible base URL, model name, a
 
 The Playground shows streaming reasoning and tool activity, renders page previews, supports follow-up edits and templates, and provides DOCX/PDF downloads. It binds to localhost by default and is intended for local evaluation—not direct public deployment. Full page preview requires LibreOffice and poppler-utils. See [Playground guide](docs/playground.md).
 
+### DeepSeek support
+
+InkPaw includes explicit compatibility for DeepSeek thinking-mode Agent Loops: it sends the `thinking` control, streams `reasoning_content` into a separate UI panel, and preserves that reasoning across tool-call continuations as required by the DeepSeek API. The recommended starting model for the Playground is **`deepseek-v4-flash`**, which is prefilled with the official `https://api.deepseek.com` endpoint.
+
+See the [DeepSeek integration guide](docs/deepseek.md) for setup, protocol details, and troubleshooting.
+
 ## Why InkPaw?
 
 LLMs can write strong content, but asking a model to control Word layout details directly often causes broken numbering, drifting styles, invalid references, or documents that fail to open. InkPaw separates those concerns with a persistent structured document model (`def` JSON):
@@ -142,6 +148,7 @@ docs/         architecture, specifications, compatibility, and release policy
 ## Documentation
 
 - [Playground](docs/playground.md)
+- [DeepSeek integration](docs/deepseek.md)
 - [Architecture](docs/architecture.md)
 - [Document node specification](docs/docxUtil-spec.md)
 - [Viewer compatibility](docs/compatibility.md)

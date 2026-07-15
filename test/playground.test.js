@@ -14,8 +14,57 @@ const Database = require("better-sqlite3");
 const { Store } = require("../playground/store");
 const { McpBridge } = require("../playground/mcp-bridge");
 const { createApp } = require("../playground/server");
+const {
+  isOfficialDeepSeekEndpoint,
+  thinkingParams,
+  buildAssistantMessage,
+} = require("../playground/agent");
 
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
+
+test("DeepSeek：识别官方 endpoint，不把普通 OpenAI 兼容地址误判为 DeepSeek", () => {
+  assert.equal(isOfficialDeepSeekEndpoint("https://api.deepseek.com"), true);
+  assert.equal(isOfficialDeepSeekEndpoint("https://api.deepseek.com/beta"), true);
+  assert.equal(isOfficialDeepSeekEndpoint("https://example.com/v1"), false);
+  assert.equal(isOfficialDeepSeekEndpoint("not-a-url"), false);
+});
+
+test("DeepSeek：官方 endpoint 显式发送 thinking enabled/disabled，通用端点保持 opt-in", () => {
+  assert.deepEqual(
+    thinkingParams({ baseURL: "https://api.deepseek.com", thinking: true }),
+    { thinking: { type: "enabled" } },
+  );
+  assert.deepEqual(
+    thinkingParams({ baseURL: "https://api.deepseek.com", thinking: false }),
+    { thinking: { type: "disabled" } },
+  );
+  assert.deepEqual(thinkingParams({ baseURL: "https://example.com/v1", thinking: false }), {});
+  assert.deepEqual(
+    thinkingParams({ baseURL: "https://example.com/v1", thinking: true }),
+    { thinking: { type: "enabled" } },
+  );
+});
+
+test("DeepSeek：工具调用 assistant 消息保留 reasoning_content 供下一轮回传", () => {
+  const toolCalls = [{ id: "call_1", name: "render_document", args: '{"docId":"d1"}' }];
+  const message = buildAssistantMessage({
+    content: "",
+    reasoning: "需要先渲染文档。",
+    toolCalls,
+    llm: { baseURL: "https://api.deepseek.com", thinking: false },
+  });
+  assert.equal(message.reasoning_content, "需要先渲染文档。");
+  assert.equal(message.tool_calls[0].function.name, "render_document");
+  assert.equal(message.tool_calls[0].function.arguments, '{"docId":"d1"}');
+
+  const generic = buildAssistantMessage({
+    content: "",
+    reasoning: "provider-private reasoning",
+    toolCalls,
+    llm: { baseURL: "https://example.com/v1", thinking: false },
+  });
+  assert.equal("reasoning_content" in generic, false);
+});
 
 const makeStore = (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-store-"));

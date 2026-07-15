@@ -24,6 +24,41 @@ function safeParseArgs(raw) {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
+function isOfficialDeepSeekEndpoint(baseURL) {
+  try {
+    const host = new URL(baseURL).hostname.toLowerCase();
+    return host === "api.deepseek.com";
+  } catch {
+    return false;
+  }
+}
+
+// DeepSeek currently defaults thinking mode to enabled, so its official endpoint
+// must receive an explicit enabled/disabled value. Other compatible endpoints keep
+// the previous opt-in behavior because they may reject this extension parameter.
+function thinkingParams(llm) {
+  if (isOfficialDeepSeekEndpoint(llm.baseURL)) {
+    return { thinking: { type: llm.thinking ? "enabled" : "disabled" } };
+  }
+  return llm.thinking ? { thinking: { type: "enabled" } } : {};
+}
+
+function buildAssistantMessage({ content, reasoning, toolCalls, llm }) {
+  const message = { role: "assistant", content: content || null };
+  if (toolCalls.length) {
+    message.tool_calls = toolCalls.map((t) => ({
+      id: t.id,
+      type: "function",
+      function: { name: t.name, arguments: t.args || "{}" },
+    }));
+  }
+  if (!message.content && !toolCalls.length) message.content = reasoning || " ";
+  else if (reasoning && (llm.thinking || isOfficialDeepSeekEndpoint(llm.baseURL))) {
+    message.reasoning_content = reasoning;
+  }
+  return message;
+}
+
 /**
  * 跑一轮 agent（一条用户消息到模型收口）。
  * @param {object} opts
@@ -46,8 +81,7 @@ async function runAgentTurn({ llm, systemPrompt, messages, tools, callTool, onEv
       stream: true,
       stream_options: { include_usage: true },
       ...(tools.length ? { tools } : {}),
-      // thinking/reasoning_effort 是 DeepSeek 扩展参数，仅显式开启时发送（其他兼容端点可能不认）
-      ...(llm.thinking ? { thinking: { type: "enabled" } } : {}),
+      ...thinkingParams(llm),
     };
 
     const stream = await client.chat.completions.create(params, { signal });
@@ -78,16 +112,7 @@ async function runAgentTurn({ llm, systemPrompt, messages, tools, callTool, onEv
 
     // 组装 assistant 消息入历史。DeepSeek 约定：assistant 必须有 content 或 tool_calls 之一；
     // 部分 OpenAI 兼容端点要求工具轮次回传 reasoning_content。
-    const assistantMsg = { role: "assistant", content: content || null };
-    if (toolCalls.length) {
-      assistantMsg.tool_calls = toolCalls.map((t) => ({
-        id: t.id,
-        type: "function",
-        function: { name: t.name, arguments: t.args || "{}" },
-      }));
-    }
-    if (!assistantMsg.content && !toolCalls.length) assistantMsg.content = reasoning || " ";
-    else if (reasoning && llm.thinking) assistantMsg.reasoning_content = reasoning;
+    const assistantMsg = buildAssistantMessage({ content, reasoning, toolCalls, llm });
     messages.push(assistantMsg);
 
     if (!toolCalls.length) break; // 模型收口，本轮结束
@@ -110,4 +135,4 @@ async function runAgentTurn({ llm, systemPrompt, messages, tools, callTool, onEv
   return usage;
 }
 
-module.exports = { runAgentTurn };
+module.exports = { runAgentTurn, isOfficialDeepSeekEndpoint, thinkingParams, buildAssistantMessage };

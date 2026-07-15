@@ -23,6 +23,12 @@ npm run playground
 
 Playground 会展示流式推理与工具调用，提供逐页预览、续聊修改、模板填槽和 DOCX/PDF 下载。它默认只监听本机，用于本地体验，不应未经加固直接部署到公网。完整逐页预览需要 LibreOffice 和 poppler-utils。详见 [Playground 使用说明](docs/playground.md)。
 
+### DeepSeek 原生兼容
+
+InkPaw 对 DeepSeek 思考模式下的 Agent Loop 做了专门兼容：显式传递 `thinking` 控制参数，把流式 `reasoning_content` 独立展示，并按 DeepSeek 工具调用协议在后续请求中完整回传推理内容。Playground 推荐从 **`deepseek-v4-flash`** 开始，设置界面会预填官方 `https://api.deepseek.com` 接口。
+
+配置方式、协议细节和排错说明见 [DeepSeek 集成指南](docs/deepseek.zh-CN.md)。
+
 ## 为什么做 InkPaw？
 
 LLM 很擅长写内容，但直接让模型控制 Word 排版细节，很容易出现编号断裂、样式漂移、引用失效或文件无法打开。InkPaw 使用持久化的结构化文档模型（`def` JSON）拆开这两类职责：
@@ -142,6 +148,7 @@ docs/         架构、规范、兼容性与发布约束
 ## 文档
 
 - [Playground 使用说明](docs/playground.md)
+- [DeepSeek 集成指南](docs/deepseek.zh-CN.md)
 - [架构](docs/architecture.md)
 - [文档节点规范](docs/docxUtil-spec.md)
 - [查看器兼容性](docs/compatibility.md)

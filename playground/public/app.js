@@ -58,7 +58,12 @@ async function ensureIdentity() {
 const dlg = $("#settings-dialog");
 const form = $("#settings-form");
 function openSettings() {
-  const v = state.llm || { baseURL: "", model: "", apiKey: "", thinking: false };
+  const v = state.llm || {
+    baseURL: "https://api.deepseek.com",
+    model: "deepseek-v4-flash",
+    apiKey: "",
+    thinking: true,
+  };
   form.baseURL.value = v.baseURL; form.model.value = v.model;
   form.apiKey.value = v.apiKey; form.thinking.checked = !!v.thinking;
   renderIdentityPanel();
