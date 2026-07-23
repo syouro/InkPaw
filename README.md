@@ -90,6 +90,8 @@ npm run start:http
 
 The default endpoint is `http://127.0.0.1:8765/mcp` and requires Bearer authentication. On first start, InkPaw creates `data/mcp-token`; you may also set `DOCX_MCP_TOKEN` explicitly.
 
+Do not expose this local compatibility mode directly to the internet. InkPaw also includes OAuth 2.1 authorization code + PKCE, discovery, refresh/revocation, health checks, and reverse-proxy or native TLS support. See the [public HTTPS + OAuth deployment guide](docs/public-oauth-deployment.zh-CN.md).
+
 ### Renderer only
 
 The renderer does not depend on MCP or SQLite:

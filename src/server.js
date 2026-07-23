@@ -15,20 +15,34 @@
  *   DOCX_MCP_TEMPLATES 填槽模板目录，默认 <repo>/data/templates
  *   DOCX_MCP_HOST     HTTP 监听地址，默认 127.0.0.1
  *   DOCX_MCP_PORT     HTTP 端口，默认 8765
+ *   DOCX_MCP_AUTH     token（默认，本地兼容）或 oauth（公网）
  *   DOCX_MCP_TOKEN    /mcp 鉴权 token，缺省读/生成 data/mcp-token（Bearer 头校验）
+ *   DOCX_MCP_PUBLIC_URL OAuth 模式的最终 HTTPS 地址，如 https://mcp.example.com/mcp
+ *   DOCX_MCP_OAUTH_PASSWORD OAuth 授权页的资源所有者密码（至少 12 字符）
+ *   DOCX_MCP_OAUTH_DB OAuth 客户端/授权/令牌数据库，默认 <repo>/data/oauth.db
+ *   DOCX_MCP_TLS_CERT / DOCX_MCP_TLS_KEY 可选原生 TLS 证书链与私钥（通常由反代终止 TLS）
+ *   DOCX_MCP_TRUST_PROXY 可信反代跳数（如 1），用于 OAuth 端点按真实客户端 IP 限流
  *   DOCX_MCP_DOWNLOADS 下载区目录，默认 <repo>/data/downloads（token 见 data/dl-token，公网经 openresty /docx-dl/ 反代）
  *   DOCX_MCP_USERS    多用户作用域根目录，默认 <repo>/data/users（X-Docx-Scope-User 头触发，见 docs/architecture.md）
  *   DOCX_MCP_SCOPED_MAX 作用域 service 实例缓存上限，默认 32（超限挤掉最久未用；闲置 30 分钟自动关闭）
  *   DOCX_MCP_MAX_TEMPLATES / DOCX_MCP_MAX_OUTPUT_MB 作用域用户存储粗闸，默认 20 个 / 200 MB（本地全局不设限）
  */
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
+const express = require("express");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
 const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
+const {
+  getOAuthProtectedResourceMetadataUrl,
+  mcpAuthRouter,
+} = require("@modelcontextprotocol/sdk/server/auth/router.js");
+const { requireBearerAuth } = require("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js");
 const { createService } = require("./service");
 const { createMcpServer } = require("./mcp-server");
+const { InkPawOAuthProvider, createOAuthManagementRouter } = require("./oauth");
 
 const ROOT = path.join(__dirname, "..");
 const service = createService({
@@ -203,38 +217,94 @@ const startHttp = () => {
   const host = process.env.DOCX_MCP_HOST || "127.0.0.1";
   const port = Number(process.env.DOCX_MCP_PORT) || 8765;
   const dlToken = loadToken(DL_TOKEN_FILE, 12);
-  const mcpToken = loadMcpToken();
+  const authMode = (process.env.DOCX_MCP_AUTH || "token").trim().toLowerCase();
+  if (!["token", "oauth"].includes(authMode)) {
+    throw new Error("DOCX_MCP_AUTH 仅支持 token 或 oauth");
+  }
 
   const rpcError = (res, status, message) => {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
   };
 
-  const httpServer = http.createServer(async (req, res) => {
-    const { pathname } = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-    if (pathname.startsWith("/downloads/") && req.method === "GET") {
-      try {
-        return handleDownloads(pathname, dlToken, res);
-      } catch (e) {
-        if (!res.headersSent) res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-        return res.end(`内部错误: ${e.message}`);
+  const app = express();
+  if (process.env.DOCX_MCP_TRUST_PROXY) {
+    const value = process.env.DOCX_MCP_TRUST_PROXY;
+    app.set("trust proxy", /^\d+$/.test(value) ? Number(value) : value === "true");
+  }
+  app.disable("x-powered-by");
+
+  app.get(["/health", "/readyz"], (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json({ status: "ok", service: "inkpaw", version: "0.1.0", auth: authMode });
+  });
+
+  let authMiddleware;
+  let scopeUserForRequest;
+  let publicMcpUrl;
+  if (authMode === "oauth") {
+    const configured = (process.env.DOCX_MCP_PUBLIC_URL || "").trim();
+    if (!configured) throw new Error("OAuth 模式必须设置 DOCX_MCP_PUBLIC_URL=https://稳定域名/mcp");
+    publicMcpUrl = new URL(configured);
+    if (publicMcpUrl.pathname !== "/mcp" || publicMcpUrl.search || publicMcpUrl.hash) {
+      throw new Error("DOCX_MCP_PUBLIC_URL 必须是无查询参数的完整 /mcp 地址");
+    }
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(publicMcpUrl.hostname);
+    if (publicMcpUrl.protocol !== "https:" && !loopback) {
+      throw new Error("OAuth 公网地址必须使用 HTTPS");
+    }
+    const ownerPassword = process.env.DOCX_MCP_OAUTH_PASSWORD || "";
+    const provider = new InkPawOAuthProvider({
+      dbPath: process.env.DOCX_MCP_OAUTH_DB || path.join(ROOT, "data", "oauth.db"),
+      resourceUrl: publicMcpUrl,
+      ownerPassword,
+    });
+    const issuerUrl = new URL(`${publicMcpUrl.origin}/`);
+    app.use(mcpAuthRouter({
+      provider,
+      issuerUrl,
+      baseUrl: issuerUrl,
+      resourceServerUrl: publicMcpUrl,
+      scopesSupported: ["mcp:tools"],
+      resourceName: "InkPaw document tools",
+      serviceDocumentationUrl: new URL("https://github.com/syouro/InkPaw"),
+    }));
+    app.use("/oauth/authorizations", createOAuthManagementRouter(provider, {
+      secureCookies: publicMcpUrl.protocol === "https:",
+    }));
+    authMiddleware = requireBearerAuth({
+      verifier: provider,
+      requiredScopes: ["mcp:tools"],
+      resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(publicMcpUrl),
+    });
+    scopeUserForRequest = (req) => req.auth && req.auth.extra && req.auth.extra.userId;
+  } else {
+    const mcpToken = loadMcpToken();
+    authMiddleware = (req, res, next) => {
+      if (!mcpAuthOk(req, mcpToken)) {
+        return rpcError(res, 401, "需要鉴权：Authorization: Bearer <token>（token 见服务端 data/mcp-token）");
       }
+      next();
+    };
+    scopeUserForRequest = (req) => (req.headers["x-docx-scope-user"] || "").trim();
+  }
+
+  app.get(/^\/downloads\//, (req, res) => {
+    try {
+      return handleDownloads(req.path, dlToken, res);
+    } catch (e) {
+      if (!res.headersSent) res.status(500).type("text");
+      return res.end(`内部错误: ${e.message}`);
     }
-    if (pathname !== "/mcp") return rpcError(res, 404, "端点是 /mcp");
-    // 无状态模式没有 SSE 流和会话，GET/DELETE 无意义
-    if (req.method !== "POST") return rpcError(res, 405, "仅支持 POST（stateless streamable HTTP）");
-    if (!mcpAuthOk(req, mcpToken)) {
-      return rpcError(res, 401, "需要鉴权：Authorization: Bearer <token>（token 见服务端 data/mcp-token）");
-    }
-    // 作用域头必须在鉴权之后解析：不带合法 mcp-token 的请求根本走不到这里
-    const scopeUser = (req.headers["x-docx-scope-user"] || "").trim();
-    if (scopeUser && !UUID_RE.test(scopeUser)) {
-      return rpcError(res, 400, "X-Docx-Scope-User 必须是 UUID");
+  });
+
+  app.post("/mcp", authMiddleware, express.json({ limit: "10mb" }), async (req, res) => {
+    const scopeUser = scopeUserForRequest(req);
+    if (!scopeUser || !UUID_RE.test(scopeUser)) {
+      if (authMode === "oauth") return rpcError(res, 401, "OAuth token 缺少有效用户身份");
+      if (scopeUser) return rpcError(res, 400, "X-Docx-Scope-User 必须是 UUID");
     }
     try {
-      const chunks = [];
-      for await (const c of req) chunks.push(c);
-      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const server = createMcpServer(scopeUser ? scopedServiceFor(scopeUser) : service);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,   // 无状态
@@ -242,16 +312,34 @@ const startHttp = () => {
       });
       res.on("close", () => { transport.close(); server.close(); });
       await server.connect(transport);
-      await transport.handleRequest(req, res, body);
+      await transport.handleRequest(req, res, req.body);
     } catch (e) {
       if (!res.headersSent) rpcError(res, 500, `内部错误: ${e.message}`);
     }
   });
 
+  app.all("/mcp", (_req, res) => rpcError(res, 405, "仅支持 POST（stateless streamable HTTP）"));
+  app.use((err, _req, res, _next) => {
+    if (err instanceof SyntaxError) return rpcError(res, 400, "请求体必须是合法 JSON");
+    console.error("[docx-mcp] HTTP 请求失败:", err);
+    return rpcError(res, 500, "内部错误");
+  });
+  app.use((_req, res) => rpcError(res, 404, "端点是 /mcp"));
+
+  const tlsCert = process.env.DOCX_MCP_TLS_CERT;
+  const tlsKey = process.env.DOCX_MCP_TLS_KEY;
+  if (!!tlsCert !== !!tlsKey) throw new Error("DOCX_MCP_TLS_CERT 与 DOCX_MCP_TLS_KEY 必须同时设置");
+  const httpServer = tlsCert
+    ? https.createServer({ cert: fs.readFileSync(tlsCert), key: fs.readFileSync(tlsKey) }, app)
+    : http.createServer(app);
+
   httpServer.listen(port, host, () => {
     // stdio 模式 stdout 是协议通道，日志统一走 stderr
-    console.error(`[docx-mcp] Streamable HTTP 已启动: http://${host}:${port}/mcp（Bearer 鉴权，token 见 ${process.env.DOCX_MCP_TOKEN ? "环境变量 DOCX_MCP_TOKEN" : MCP_TOKEN_FILE}）`);
-    console.error(`[docx-mcp] 下载区: http://${host}:${port}/downloads/${dlToken}/ （目录 ${DOWNLOADS_DIR}）`);
+    const localScheme = tlsCert ? "https" : "http";
+    const advertised = publicMcpUrl ? publicMcpUrl.href : `${localScheme}://${host}:${port}/mcp`;
+    console.error(`[docx-mcp] Streamable HTTP 已启动: ${advertised}（${authMode === "oauth" ? "OAuth 2.1 + PKCE" : `Bearer token：${process.env.DOCX_MCP_TOKEN ? "DOCX_MCP_TOKEN" : MCP_TOKEN_FILE}`}）`);
+    console.error(`[docx-mcp] 健康检查: ${publicMcpUrl ? publicMcpUrl.origin : `${localScheme}://${host}:${port}`}/health`);
+    console.error(`[docx-mcp] 下载区: ${localScheme}://${host}:${port}/downloads/${dlToken}/ （目录 ${DOWNLOADS_DIR}）`);
   });
 };
 

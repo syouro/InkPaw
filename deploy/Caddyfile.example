@@ -1,0 +1,6 @@
+# 先把 mcp.example.com 的 DNS A/AAAA 记录指向这台稳定服务器。
+# Caddy 会自动申请和续期公开 TLS 证书。
+mcp.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8765
+}

@@ -90,6 +90,8 @@ npm run start:http
 
 默认端点为 `http://127.0.0.1:8765/mcp`，并强制 Bearer 鉴权。首次启动会生成 `data/mcp-token`；也可以通过 `DOCX_MCP_TOKEN` 显式设置。
 
+公网接入请勿直接暴露这个本地兼容模式。InkPaw 已提供 OAuth 2.1 授权码 + PKCE、授权发现、刷新/撤销、健康检查，以及反向代理或原生 TLS 配置；部署步骤见 [公网 HTTPS + OAuth 部署指南](docs/public-oauth-deployment.zh-CN.md)。
+
 ### 只使用渲染层
 
 渲染层不依赖 MCP 或 SQLite：

@@ -63,7 +63,9 @@ DOCX → optional PDF/PNG → validation feedback
 
 ## HTTP security and isolation
 
-HTTP mode is stateless and requires `Authorization: Bearer <token>`. The token is supplied through `DOCX_MCP_TOKEN` or generated under `data/mcp-token`.
+HTTP mode is stateless. Local compatibility mode requires the shared bearer token supplied through `DOCX_MCP_TOKEN` or generated under `data/mcp-token`.
+
+Public deployments use `DOCX_MCP_AUTH=oauth`. InkPaw then exposes RFC 9728/RFC 8414 discovery, OAuth authorization code with PKCE S256, dynamic client registration, access and rotating refresh tokens, RFC 7009 revocation, and an owner-facing authorization management page. Access tokens are short-lived, bound to the configured MCP resource URL, and mapped to an isolated user scope. See `docs/public-oauth-deployment.zh-CN.md`.
 
 An authenticated, trusted gateway may set `X-Docx-Scope-User: <uuid>`. When present, InkPaw uses an isolated SQLite database, output directory, template directory and style profile under that user scope. The header must never be accepted from an untrusted client before gateway authentication. Direct stdio use and HTTP requests without the scope header use the global local workspace.
 
