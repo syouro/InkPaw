@@ -84,6 +84,60 @@ const createMcpServer = (service) => {
     },
   }, wrap((args) => service.getOutline(args)));
 
+  // UI 能力，不是 agent 动作：Playground 用它出可编辑草稿视图，模型不需要调。
+  // 前端在 mcp-bridge 里把它从模型可见的工具表滤掉（UI_ONLY_TOOLS）。
+  server.registerTool("get_draft_html", {
+    title: "获取可编辑草稿视图 HTML",
+    description: "返回文档的可编辑 HTML 草稿视图（供人工审阅界面用，模型无需调用）。编号与引用解析结果与 DOCX 渲染一致；系统生成的编号/图表号/交叉引用标为只读。不分页、不含页眉页脚。",
+    inputSchema: { docId: docIdSchema },
+  }, wrap((args) => service.getDraftHtml(args)));
+
+  // 同为 UI 能力：草稿视图的值编辑写回。模型改内容用 update_node（整节点替换），
+  // 这里只替换一个字符串叶子，是给人工编辑界面用的窄口。
+  server.registerTool("update_node_value", {
+    title: "草稿视图值编辑写回",
+    description: "替换节点内某个字符串叶子的值（供人工审阅界面用，模型改内容请用 update_node）。path 是段数组，如 [\"data\",0,\"texts\",1]。只改值不改结构；{{ref:}}/{{pageRef:}} 标记必须原样保留，增删改会被拒绝。",
+    inputSchema: {
+      docId: docIdSchema,
+      id: nodeIdSchema,
+      path: z.array(z.union([z.string().max(64), z.number().int().nonnegative()]))
+        .min(1).max(8).describe("叶子路径段数组，如 [\"data\",0,\"texts\",1]"),
+      value: z.string().max(100000).describe("新的字符串值"),
+    },
+  }, wrap((args) => service.updateNodeValue(args)));
+
+  // 页眉页脚配置（UI 窄口）：这批字段是布尔/整数，套不进 update_node_value 的
+  // 字符串叶子解析器，所以独立成通道。模型改这些走 update_node / def.meta。
+  server.registerTool("get_doc_config", {
+    title: "获取页眉页脚配置",
+    description: "返回文档级与各节的页眉页脚配置（供人工审阅界面用）。每层同时给出显式设置值 set 与合并后的有效值 effective，便于区分继承态和覆盖态。",
+    inputSchema: { docId: docIdSchema },
+  }, wrap((args) => service.getDocConfig(args)));
+
+  server.registerTool("update_doc_config", {
+    title: "修改页眉页脚配置",
+    description: "设置或清除文档级/节级页眉页脚配置（供人工审阅界面用）。不给 sectionId 是文档级，给了是该 sectionBreak 节点。set 赋值，clear 恢复继承——清除必须用 clear 而不是设空字符串（headerText:\"\" 的语义是「本节显式无页眉」）。",
+    inputSchema: {
+      docId: docIdSchema,
+      sectionId: nodeIdSchema.optional().describe("sectionBreak 节点 id；不给则作用于文档级 meta"),
+      set: z.record(z.union([z.string(), z.boolean(), z.number()])).optional().describe("字段赋值"),
+      clear: z.array(z.string().max(64)).optional().describe("恢复继承的字段名（删除键，不是置空）"),
+    },
+  }, wrap((args) => service.updateDocConfig(args)));
+
+  // 草稿视图的块级结构编辑（UI 窄口）：转调 insert/delete/move_nodes。
+  // 模型做结构调整直接用那三个工具，能力更全。
+  server.registerTool("update_draft_structure", {
+    title: "草稿视图块级结构编辑",
+    description: "在草稿视图里增删移动整个节点（供人工审阅界面用，模型请用 insert_nodes/delete_nodes/move_nodes）。只支持插入普通段落与整节点增删上下移；段落内 run 的增删和插图不在此列。",
+    inputSchema: {
+      docId: docIdSchema,
+      op: z.enum(["insertBefore", "insertAfter", "delete", "moveUp", "moveDown"]),
+      anchorId: nodeIdSchema.describe("操作目标节点 id"),
+      text: z.string().max(100000).optional().describe("insertBefore/insertAfter 时新段落的文字"),
+    },
+  }, wrap((args) => service.updateDraftStructure(args)));
+
   server.registerTool("get_nodes", {
     title: "获取节点全量",
     description: "按 id 取完整节点 JSON，看细节用（改表格前先拉全量）。不存在的 id 返回 null。",

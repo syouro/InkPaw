@@ -287,6 +287,100 @@ function createApp({ store, bridgePool, systemPrompt = SYSTEM_PROMPT, usersRoot 
     res.sendFile(full);
   });
 
+  // 可编辑草稿视图（docs/editable-preview.md §3）。走 MCP 的 get_draft_html——
+  // 编号与引用解析必须和 DOCX 出自同一条 transform，前端自己拼会对不上。
+  // 作用域由 bridgePool 按 userId 隔离，别人的 docId 在自己的库里查不到。
+  app.get("/api/docs/:docId/draft", async (req, res) => {
+    const { docId } = req.params;
+    if (!UUID_RE.test(docId)) return res.status(404).end();
+    try {
+      const bridge = await bridgePool.for(req.auth.userId);
+      const { text, isError } = await bridge.callTool("get_draft_html", { docId }, { truncate: false });
+      if (isError) return res.status(404).json({ error: text });
+      res.set("Cache-Control", "no-store");
+      res.json(JSON.parse(text));
+    } catch (e) {
+      res.status(500).json({ error: e.message || "草稿视图生成失败" });
+    }
+  });
+
+  // 草稿视图写回：一次一个叶子。走 MCP update_node_value → 既有 update 路径 + validator，
+  // 不新开平行写入口（docs/editable-preview.md §3.4）。
+  app.post("/api/docs/:docId/draft", async (req, res) => {
+    const { docId } = req.params;
+    if (!UUID_RE.test(docId)) return res.status(404).end();
+    const { id, path: leafPath, value } = req.body || {};
+    if (typeof id !== "string" || !Array.isArray(leafPath) || typeof value !== "string") {
+      return res.status(400).json({ error: "需要 { id, path: [...], value }" });
+    }
+    try {
+      const bridge = await bridgePool.for(req.auth.userId);
+      const { text, isError } = await bridge.callTool("update_node_value", { docId, id, path: leafPath, value });
+      if (isError) return res.status(400).json({ error: text });
+      res.json(JSON.parse(text));
+    } catch (e) {
+      res.status(500).json({ error: e.message || "写回失败" });
+    }
+  });
+
+  // 页眉页脚配置（docs/editable-preview.md §3.5）：读写都走 MCP 的类型化通道。
+  app.get("/api/docs/:docId/config", async (req, res) => {
+    const { docId } = req.params;
+    if (!UUID_RE.test(docId)) return res.status(404).end();
+    try {
+      const bridge = await bridgePool.for(req.auth.userId);
+      const { text, isError } = await bridge.callTool("get_doc_config", { docId }, { truncate: false });
+      if (isError) return res.status(404).json({ error: text });
+      res.set("Cache-Control", "no-store");
+      res.json(JSON.parse(text));
+    } catch (e) {
+      res.status(500).json({ error: e.message || "读取配置失败" });
+    }
+  });
+
+  app.post("/api/docs/:docId/config", async (req, res) => {
+    const { docId } = req.params;
+    if (!UUID_RE.test(docId)) return res.status(404).end();
+    const { sectionId, set, clear } = req.body || {};
+    if (set !== undefined && (typeof set !== "object" || set === null || Array.isArray(set))) {
+      return res.status(400).json({ error: "set 必须是对象" });
+    }
+    if (clear !== undefined && !Array.isArray(clear)) {
+      return res.status(400).json({ error: "clear 必须是数组" });
+    }
+    try {
+      const bridge = await bridgePool.for(req.auth.userId);
+      const args = { docId, ...(sectionId ? { sectionId } : {}), ...(set ? { set } : {}), ...(clear ? { clear } : {}) };
+      const { text, isError } = await bridge.callTool("update_doc_config", args);
+      if (isError) return res.status(400).json({ error: text });
+      res.json(JSON.parse(text));
+    } catch (e) {
+      res.status(500).json({ error: e.message || "配置写入失败" });
+    }
+  });
+
+  // 草稿视图块级结构编辑（docs/editable-preview.md §4 P4）：转调 MCP 窄口。
+  app.post("/api/docs/:docId/structure", async (req, res) => {
+    const { docId } = req.params;
+    if (!UUID_RE.test(docId)) return res.status(404).end();
+    const { op, anchorId, text } = req.body || {};
+    if (typeof op !== "string" || typeof anchorId !== "string") {
+      return res.status(400).json({ error: "需要 { op, anchorId }" });
+    }
+    if (text !== undefined && typeof text !== "string") {
+      return res.status(400).json({ error: "text 必须是字符串" });
+    }
+    try {
+      const bridge = await bridgePool.for(req.auth.userId);
+      const args = { docId, op, anchorId, ...(text !== undefined ? { text } : {}) };
+      const { text: out, isError } = await bridge.callTool("update_draft_structure", args);
+      if (isError) return res.status(400).json({ error: out });
+      res.json(JSON.parse(out));
+    } catch (e) {
+      res.status(500).json({ error: e.message || "结构编辑失败" });
+    }
+  });
+
   app.get("/api/docs/:docId/inkpaw.:ext", (req, res) => {
     const { docId, ext } = req.params;
     if (!UUID_RE.test(docId) || !["docx", "pdf"].includes(ext)) return res.status(404).end();

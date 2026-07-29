@@ -983,3 +983,330 @@ test("无 sectionBreak 文档仍是单节（无回归）", async () => {
     cleanup();
   }
 });
+
+// ── 草稿视图（docs/editable-preview.md §3，P2）────────────────────
+
+test("getDraftHtml：编号与引用解析和 DOCX 出自同一条 transform", async () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "草稿", def: sampleDef() });
+    const { html, css, warnings } = service.getDraftHtml({ docId });
+
+    assert.ok(html.startsWith("<article class=\"ip-doc\">"), "应是 HTML 片段");
+    assert.ok(css.includes(".ip-leaf"), "应带草稿视图样式");
+    assert.ok(Array.isArray(warnings));
+
+    // 引用解析成与 DOCX 一致的标签，且是只读 chip
+    assert.match(html, /<span class="ip-ref" contenteditable="false" data-ref="tbl-overview">表1<\/span>/);
+    // 正文可编辑，写回路径指向 def 节点
+    assert.match(html, /data-node-id="p-intro" data-path="text"/);
+    // 图题写回 caption 而不是 text
+    assert.match(html, /data-path="caption"[^>]*>监测项目一览</);
+  } finally { cleanup(); }
+});
+
+test("getDraftHtml：不落盘、不依赖 LibreOffice，可在未渲染的文档上直接调用", () => {
+  const { service, dir, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "未渲染", def: sampleDef() });
+    const { html } = service.getDraftHtml({ docId });
+    assert.ok(html.length > 0);
+    const outputDir = path.join(dir, "output");
+    const produced = fs.existsSync(outputDir) ? fs.readdirSync(outputDir) : [];
+    assert.deepStrictEqual(produced, [], "草稿视图不应产生任何落盘文件");
+  } finally { cleanup(); }
+});
+
+test("getDraftHtml：不存在的 docId 抛错", () => {
+  const { service, cleanup } = makeService();
+  try {
+    assert.throws(() => service.getDraftHtml({ docId: "00000000-0000-4000-8000-000000000000" }));
+  } finally { cleanup(); }
+});
+
+test("updateNodeValue：改文字落回 def，走既有 update 路径", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "写回", def: sampleDef() });
+    const r = service.updateNodeValue({
+      docId, id: "p-intro", path: ["text"],
+      value: "监测概况见 {{ref:tbl-overview}}，架构见 {{ref:img-arch}}。峰值 83.1uε。",
+    });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.path, "text");
+    const [node] = service.getNodes({ docId, ids: ["p-intro"] });
+    assert.match(node.text, /83\.1uε/);
+    assert.match(node.text, /\{\{ref:tbl-overview\}\}/, "ref 标记必须以原文形态存回 def");
+  } finally { cleanup(); }
+});
+
+test("updateNodeValue：改表格单元格与图题", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "写回", def: sampleDef() });
+    service.updateNodeValue({ docId, id: "tbl-overview", path: ["data", 1, "texts", 2], value: "改过的说明" });
+    service.updateNodeValue({ docId, id: "tbl-overview", path: ["caption"], value: "新表题" });
+    const [t] = service.getNodes({ docId, ids: ["tbl-overview"] });
+    assert.strictEqual(t.data[1].texts[2], "改过的说明");
+    assert.strictEqual(t.caption, "新表题");
+    assert.strictEqual(t.data[1].texts[0], "环境", "同行其他格不受影响");
+  } finally { cleanup(); }
+});
+
+test("updateNodeValue：删改 ref 标记被拒（服务端独立校验，不靠前端）", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "写回", def: sampleDef() });
+    const before = service.getNodes({ docId, ids: ["p-intro"] })[0].text;
+
+    assert.throws(() => service.updateNodeValue({
+      docId, id: "p-intro", path: ["text"], value: "把引用删掉的正文",
+    }), /引用标记不可增删改/);
+
+    assert.throws(() => service.updateNodeValue({
+      docId, id: "p-intro", path: ["text"],
+      value: "监测概况见 {{ref:别的目标}}，架构见 {{ref:img-arch}}。",
+    }), /引用标记不可增删改/);
+
+    assert.throws(() => service.updateNodeValue({
+      docId, id: "p-intro", path: ["text"],
+      value: "架构见 {{ref:img-arch}}，监测概况见 {{ref:tbl-overview}}。",
+    }), /引用标记不可增删改/, "顺序也不能变");
+
+    assert.strictEqual(service.getNodes({ docId, ids: ["p-intro"] })[0].text, before, "拒绝后 def 不变");
+  } finally { cleanup(); }
+});
+
+test("updateNodeValue：非白名单路径、越界、不存在的节点全部拒绝", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "写回", def: sampleDef() });
+    assert.throws(() => service.updateNodeValue({
+      docId, id: "tbl-overview", path: ["columnWidths", 0], value: "9999",
+    }), /不可编辑/);
+    assert.throws(() => service.updateNodeValue({
+      docId, id: "tbl-overview", path: ["data", 99, "texts", 0], value: "越界",
+    }), /路径不存在|不可编辑/);
+    assert.throws(() => service.updateNodeValue({
+      docId, id: "不存在的节点", path: ["text"], value: "x",
+    }), /节点不存在/);
+    assert.throws(() => service.updateNodeValue({
+      docId, id: "p-intro", path: ["__proto__", "polluted"], value: "x",
+    }), /路径不存在|不可编辑/);
+    assert.strictEqual({}.polluted, undefined);
+  } finally { cleanup(); }
+});
+
+test("updateNodeValue：改完草稿视图与渲染保持一致", async () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "一致性", def: sampleDef() });
+    service.updateNodeValue({ docId, id: "tbl-overview", path: ["caption"], value: "改过的表题" });
+    const { html } = service.getDraftHtml({ docId });
+    assert.match(html, /data-path="caption"[^>]*>改过的表题</);
+    const rendered = await service.renderDocument({ docId });
+    assert.strictEqual(rendered.ok, true, "改完仍可渲染");
+  } finally { cleanup(); }
+});
+
+// ── 页眉页脚配置（docs/editable-preview.md §3.5，P3b）──────────────
+
+const sectionDef = () => ({
+  meta: { headerText: "文档级页眉" },
+  contexts: [
+    { id: "p1", type: "text", text: "第一节正文" },
+    { id: "sec2", type: "sectionBreak", headerText: "第二节页眉" },
+    { id: "p2", type: "text", text: "第二节正文" },
+    { id: "sec3", type: "sectionBreak" },
+    { id: "p3", type: "text", text: "第三节正文" },
+  ],
+});
+
+test("getDocConfig：同时给出显式设置与有效值，用于区分继承态", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "配置", def: sectionDef() });
+    const cfg = service.getDocConfig({ docId });
+
+    assert.strictEqual(cfg.document.set.headerText, "文档级页眉");
+    assert.strictEqual(cfg.document.effective.headerText, "文档级页眉");
+
+    assert.strictEqual(cfg.sections.length, 2);
+    assert.strictEqual(cfg.sections[0].id, "sec2");
+    assert.strictEqual(cfg.sections[0].set.headerText, "第二节页眉");
+    assert.strictEqual(cfg.sections[0].effective.headerText, "第二节页眉");
+
+    // sec3 没设 → set 里没有该键，有效值继承文档级
+    assert.ok(!("headerText" in cfg.sections[1].set), "未设置的字段不该出现在 set 里");
+    assert.strictEqual(cfg.sections[1].effective.headerText, "文档级页眉");
+
+    // 版式字段不该泄进配置面板
+    assert.ok(!("margins" in cfg.document.effective));
+    assert.ok(!("landscape" in cfg.document.effective));
+    assert.ok(!("headerImage" in cfg.document.effective));
+  } finally { cleanup(); }
+});
+
+test("配置三态：undefined 继承 / \"\" 显式无页眉 / 有值覆盖，语义各不相同", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "配置", def: sectionDef() });
+
+    // 显式无页眉：写空字符串
+    service.updateDocConfig({ docId, sectionId: "sec3", set: { headerText: "" } });
+    let cfg = service.getDocConfig({ docId });
+    assert.strictEqual(cfg.sections[1].set.headerText, "");
+    assert.strictEqual(cfg.sections[1].effective.headerText, "", "空字符串不继承文档级");
+
+    // 恢复继承：必须删键，不是置空
+    service.updateDocConfig({ docId, sectionId: "sec3", clear: ["headerText"] });
+    cfg = service.getDocConfig({ docId });
+    assert.ok(!("headerText" in cfg.sections[1].set), "clear 必须删除键");
+    assert.strictEqual(cfg.sections[1].effective.headerText, "文档级页眉");
+
+    const [node] = service.getNodes({ docId, ids: ["sec3"] });
+    assert.ok(!("headerText" in node), "def 里也必须是删除而非置空");
+  } finally { cleanup(); }
+});
+
+test("配置写入：作用域校验——pageNumberStart 不接受文档级", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "配置", def: sectionDef() });
+    assert.throws(() => service.updateDocConfig({ docId, set: { pageNumberStart: 5 } }),
+      /不支持文档级设置/);
+    // 节级可以
+    service.updateDocConfig({ docId, sectionId: "sec2", set: { pageNumberStart: 5 } });
+    assert.strictEqual(service.getDocConfig({ docId }).sections[0].set.pageNumberStart, 5);
+  } finally { cleanup(); }
+});
+
+test("配置写入：类型与枚举校验，null 被拒", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "配置", def: sectionDef() });
+    assert.throws(() => service.updateDocConfig({ docId, set: { pageNumber: "yes" } }), /必须是布尔/);
+    assert.throws(() => service.updateDocConfig({ docId, set: { headerText: 42 } }), /必须是字符串/);
+    assert.throws(() => service.updateDocConfig({ docId, set: { headerText: null } }), /不接受 null/);
+    assert.throws(() => service.updateDocConfig({ docId, sectionId: "sec2", set: { pageNumberFormat: "roman" } }),
+      /非法/);
+    assert.throws(() => service.updateDocConfig({ docId, sectionId: "sec2", set: { pageNumberStart: 0 } }),
+      /不小于 1/);
+  } finally { cleanup(); }
+});
+
+test("配置写入：样式与版式字段不开放，图片字段同样不开放", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "配置", def: sectionDef() });
+    for (const field of ["headerSize", "font", "margins", "landscape", "columns", "headerImage", "footerImage"]) {
+      assert.throws(() => service.updateDocConfig({ docId, set: { [field]: "x" } }),
+        /不可配置的字段/, `${field} 必须被拒`);
+    }
+  } finally { cleanup(); }
+});
+
+test("配置写入：非 sectionBreak 节点与不存在的节点被拒；同字段不能同时 set 和 clear", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "配置", def: sectionDef() });
+    assert.throws(() => service.updateDocConfig({ docId, sectionId: "p1", set: { headerText: "x" } }),
+      /只能设在 sectionBreak 上/);
+    assert.throws(() => service.updateDocConfig({ docId, sectionId: "没有这个", set: { headerText: "x" } }),
+      /节点不存在/);
+    assert.throws(() => service.updateDocConfig({
+      docId, sectionId: "sec2", set: { headerText: "x" }, clear: ["headerText"],
+    }), /不能同时 set 和 clear/);
+  } finally { cleanup(); }
+});
+
+test("配置改完仍可渲染，且页眉进入产物", async () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "配置", def: sectionDef() });
+    service.updateDocConfig({ docId, set: { headerText: "改过的文档级页眉" } });
+    const r = await service.renderDocument({ docId });
+    assert.strictEqual(r.ok, true);
+    const zip = await JSZip.loadAsync(fs.readFileSync(r.path));
+    const headers = Object.keys(zip.files).filter((f) => /word\/header\d*\.xml/.test(f));
+    const xml = (await Promise.all(headers.map((f) => zip.file(f).async("string")))).join("");
+    assert.match(xml, /改过的文档级页眉/);
+  } finally { cleanup(); }
+});
+
+// ── 块级结构编辑（docs/editable-preview.md §4 P4）──────────────────
+
+const structDef = () => ({
+  contexts: [
+    { id: "h1", type: "heading", level: 1, text: "概述" },
+    { id: "p1", type: "text", text: "第一段" },
+    { id: "p2", type: "text", text: "第二段，见 {{ref:h1}}。" },
+  ],
+});
+
+test("结构编辑：插入段落落在正确位置并分到新 id", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "结构", def: structDef() });
+    const r = service.updateDraftStructure({ docId, op: "insertAfter", anchorId: "p1", text: "插进来的" });
+    assert.strictEqual(r.newIds.length, 1);
+    const ids = service.getOutline({ docId }).map((n) => n.id);
+    assert.deepStrictEqual(ids, ["h1", "p1", r.newIds[0], "p2"]);
+
+    service.updateDraftStructure({ docId, op: "insertBefore", anchorId: "h1", text: "开头" });
+    assert.strictEqual(service.getOutline({ docId })[0].type, "text");
+  } finally { cleanup(); }
+});
+
+test("结构编辑：上下移动，边界给出明确错误", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "结构", def: structDef() });
+    service.updateDraftStructure({ docId, op: "moveDown", anchorId: "p1" });
+    assert.deepStrictEqual(service.getOutline({ docId }).map((n) => n.id), ["h1", "p2", "p1"]);
+    service.updateDraftStructure({ docId, op: "moveUp", anchorId: "p1" });
+    assert.deepStrictEqual(service.getOutline({ docId }).map((n) => n.id), ["h1", "p1", "p2"]);
+
+    assert.throws(() => service.updateDraftStructure({ docId, op: "moveUp", anchorId: "h1" }),
+      /已经是第一个/);
+    assert.throws(() => service.updateDraftStructure({ docId, op: "moveDown", anchorId: "p2" }),
+      /已经是最后一个/);
+  } finally { cleanup(); }
+});
+
+test("结构编辑：删除节点，引用悬空以 warn 点名而不是静默", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "结构", def: structDef() });
+    const r = service.updateDraftStructure({ docId, op: "delete", anchorId: "h1" });
+    assert.ok(r.issues.some((i) => i.rule === "delete-ref-broken"), "必须点名悬空引用");
+    assert.deepStrictEqual(service.getOutline({ docId }).map((n) => n.id), ["p1", "p2"]);
+  } finally { cleanup(); }
+});
+
+test("结构编辑：不认的 op、不存在的节点、删到空文档全部拒绝", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "结构", def: structDef() });
+    assert.throws(() => service.updateDraftStructure({ docId, op: "insertTable", anchorId: "p1" }),
+      /未知操作/);
+    assert.throws(() => service.updateDraftStructure({ docId, op: "delete", anchorId: "没有这个" }),
+      /节点不存在/);
+
+    const solo = service.createDocument({ title: "单节点", def: { contexts: [{ id: "only", type: "text", text: "x" }] } });
+    assert.throws(() => service.updateDraftStructure({ docId: solo.docId, op: "delete", anchorId: "only" }),
+      /至少要留一个节点/);
+  } finally { cleanup(); }
+});
+
+test("结构编辑：改完草稿与渲染都跟上", async () => {
+  const { service, cleanup } = makeService();
+  try {
+    const { docId } = service.createDocument({ title: "结构", def: structDef() });
+    service.updateDraftStructure({ docId, op: "insertAfter", anchorId: "p1", text: "新插入的段落" });
+    const { html } = service.getDraftHtml({ docId });
+    assert.match(html, /新插入的段落/);
+    const r = await service.renderDocument({ docId });
+    assert.strictEqual(r.ok, true);
+  } finally { cleanup(); }
+});

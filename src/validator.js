@@ -86,6 +86,13 @@ const withExampleHint = (it, topic) => {
 };
 
 const REF_RE = /\{\{ref:([^}]+)\}\}/g;
+// 两种引用标记合起来扫一遍，保留它们在原文里的交错顺序——按类型分开收集会丢掉
+// 相对次序。草稿视图的值编辑用它做标记一致性校验（docs/editable-preview.md §3.3）
+const MARKER_RE = /\{\{(ref|pageRef):([^}]+)\}\}/g;
+
+/** 一段文本里全部引用标记的指纹：类型:id 的有序序列，不含位置（改文字不该影响它） */
+const markerFingerprint = (s) =>
+  (typeof s === "string" ? [...s.matchAll(MARKER_RE)].map((m) => `${m[1]}:${m[2]}`) : []).join(",");
 
 const collectByRe = (node, re) => {
   const texts = Array.isArray(node.text) ? node.text : [node.text];
@@ -697,4 +704,4 @@ const validate = (def, opts = {}) => {
 
 const hasErrors = (issues) => issues.some((it) => it.level === "error");
 
-module.exports = { validate, hasErrors, collectRefs, collectPageRefs, REF_RE, RULE_TOPIC, TYPE_TOPIC };
+module.exports = { validate, hasErrors, collectRefs, collectPageRefs, REF_RE, MARKER_RE, markerFingerprint, RULE_TOPIC, TYPE_TOPIC };

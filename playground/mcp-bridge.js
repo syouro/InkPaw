@@ -10,6 +10,13 @@ const { StreamableHTTPClientTransport } = require("@modelcontextprotocol/sdk/cli
 
 const MAX_RESULT_CHARS = 20000; // 工具结果超长截断，保护模型上下文
 
+// 服务端为人工审阅界面提供的工具：Playground 自己调，但不进模型的工具表。
+// 模型没有调它的理由，摆出来只会占上下文并诱发无用调用。
+const UI_ONLY_TOOLS = new Set([
+  "get_draft_html", "update_node_value", "get_doc_config", "update_doc_config",
+  "update_draft_structure",
+]);
+
 class McpBridge {
   constructor(url, token, { scopeUser } = {}) {
     this.url = url;
@@ -28,7 +35,7 @@ class McpBridge {
     await client.connect(new StreamableHTTPClientTransport(new URL(this.url), opts));
     const { tools } = await client.listTools();
     this.client = client;
-    this.openaiTools = tools.map((t) => ({
+    this.openaiTools = tools.filter((t) => !UI_ONLY_TOOLS.has(t.name)).map((t) => ({
       type: "function",
       function: {
         name: t.name,
@@ -39,8 +46,10 @@ class McpBridge {
     return this.openaiTools.length;
   }
 
-  // 返回 { text, isError }；MCP 内容块只取 text 部分拼接
-  async callTool(name, args) {
+  // 返回 { text, isError }；MCP 内容块只取 text 部分拼接。
+  // truncate=false 用于 UI 工具（草稿 HTML 整篇要完整，截断了页面就残缺）——
+  // 截断是为了保护模型上下文，不进模型的结果不需要它。
+  async callTool(name, args, { truncate = true } = {}) {
     if (!this.client) throw new Error("MCP 未连接");
     let res;
     try {
@@ -54,7 +63,7 @@ class McpBridge {
       .filter((c) => c.type === "text")
       .map((c) => c.text)
       .join("\n");
-    if (text.length > MAX_RESULT_CHARS) {
+    if (truncate && text.length > MAX_RESULT_CHARS) {
       text = text.slice(0, MAX_RESULT_CHARS) + `\n…[结果超长，已截断至 ${MAX_RESULT_CHARS} 字符]`;
     }
     return { text, isError: !!res.isError };

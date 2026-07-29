@@ -118,11 +118,16 @@ test("toc 静态展开：标题+分级条目带内链，maxLevel 过滤；native
   ];
   const { def } = transform({ meta: { autoNumber: true }, contexts });
   const [title, e1, e2, e3] = def.contexts;
-  assert.deepStrictEqual(title, { type: "text", text: "目录", paragraphOptions: { style: "tocTitle" } });
+  // _src 是编辑视图的溯源标记（docs/editable-preview.md §3.1）：目录整体为生成物
+  assert.deepStrictEqual(title, {
+    type: "text", text: "目录", paragraphOptions: { style: "tocTitle" },
+    _src: { readonly: true },
+  });
   assert.deepStrictEqual(e1, {
     type: "text", text: "1 概述",
     textOptions: { link: "#h-1", style: "tocEntry" },
     paragraphOptions: { style: "toc1" },
+    _src: { readonly: true },
   });
   assert.strictEqual(e2.paragraphOptions.style, "toc2");
   assert.strictEqual(e3.text, "1.1.1 细节");
@@ -143,8 +148,14 @@ test("toc 静态展开：标题+分级条目带内链，maxLevel 过滤；native
   const nat = transform({ meta: { autoNumber: true }, contexts: [
     { id: "toc-1", type: "toc", native: true, maxLevel: 2 }, ...contexts.slice(1),
   ] }).def.contexts;
-  assert.deepStrictEqual(nat[0], { type: "text", text: "目录", paragraphOptions: { style: "tocTitle" } });
-  assert.deepStrictEqual(nat[1], { id: "toc-1", type: "toc", native: true, maxLevel: 2 });
+  assert.deepStrictEqual(nat[0], {
+    type: "text", text: "目录", paragraphOptions: { style: "tocTitle" },
+    _src: { readonly: true },
+  });
+  assert.deepStrictEqual(nat[1], {
+    id: "toc-1", type: "toc", native: true, maxLevel: 2,
+    _src: { readonly: true },
+  });
 });
 
 test("target=word：toc 默认走原生域；节点显式 native:false 仍以节点为准", () => {

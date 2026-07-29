@@ -153,6 +153,7 @@ docs/         架构、规范、兼容性与发布约束
 - [DeepSeek 集成指南](docs/deepseek.zh-CN.md)
 - [架构](docs/architecture.md)
 - [文档节点规范](docs/docxUtil-spec.md)
+- [可编辑预览设计](docs/editable-preview.md)（已落地；插图暂不支持）
 - [查看器兼容性](docs/compatibility.md)
 - [docx 上游问题](docs/upstream-issues.md)
 - [来源快照与同步规则](SOURCE_SNAPSHOT.md)

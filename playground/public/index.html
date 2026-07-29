@@ -33,10 +33,22 @@
 
   <aside id="preview-pane">
     <div class="preview-head">
-      <span>文档预览</span>
+      <div id="preview-tabs">
+        <button class="ptab active" data-tab="pages" title="LibreOffice 渲染的真实分页效果">版式</button>
+        <button class="ptab" data-tab="draft" title="可编辑草稿视图：不分页，改文字和数值">草稿</button>
+      </div>
       <span id="dl-buttons"></span>
     </div>
     <div id="preview-pages"><div class="preview-empty">渲染后这里会显示每页预览</div></div>
+    <div id="preview-draft" hidden>
+      <div class="preview-empty">渲染后这里会显示可编辑草稿</div>
+    </div>
+    <dialog id="config-dialog">
+      <h3>页眉页脚</h3>
+      <p class="hint">草稿视图不画页眉页脚（没有分页概念），改完到「版式」重新渲染确认效果。</p>
+      <div id="config-body"></div>
+      <div class="dialog-actions"><button id="btn-config-close" class="primary">关闭</button></div>
+    </dialog>
   </aside>
 </div>
 

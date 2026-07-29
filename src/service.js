@@ -16,16 +16,72 @@ const DOCX2PNG = path.join(__dirname, "..", "scripts", "docx2png.sh");
 const { openStore } = require("./store");
 const { fillNodeIds } = require("./ids");
 const { normalizeNodes, normalizeNode } = require("./normalize");
-const { validate, hasErrors, collectRefs } = require("./validator");
+const { validate, hasErrors, collectRefs, markerFingerprint } = require("./validator");
 const { transform, buildNumberIndex } = require("./transform");
+const { renderHtml, EDITOR_CSS } = require("./htmlUtil");
+const { readPath, writePath, formatPath } = require("./nodePath");
 const { resolveDocConfig, listPresets, loadPreset, loadStyleProfile } = require("./presets");
 const { markdownToDef } = require("./markdown");
 const { fetchUrlImagesInDef } = require("./fetch-images");
 const { EXAMPLES } = require("./examples");
-const { saveReport, contentWidthOf, normalizeColumns } = require("./docxUtil");
+const { saveReport, contentWidthOf, normalizeColumns, sectionConfigOf } = require("./docxUtil");
 const { extractSlots, inspectTemplate, renderTemplate, SLOT_NODE_TYPES } = require("./template");
 
 const BRIEF_LEN = 30;
+
+// ── 页眉页脚配置通道（docs/editable-preview.md §3.5）──────────────
+// 类型化白名单：这批字段是布尔和对象，套不进 nodePath 那个只认字符串叶子的解析器，
+// 所以走独立通道。样式与版式参数（headerSize/font/margins/landscape/columns）不开放
+// ——它们属 preset 职责；headerImage/footerImage 的 src 是文件路径，开放等于给
+// 编辑器开一条路径注入面，要先接图片上传通道再单独设计。
+const DOC_CONFIG_FIELDS = {
+  headerText: { type: "string", scopes: ["document", "section"] },
+  pageNumber: { type: "boolean", scopes: ["document", "section"] },
+  titlePage: { type: "boolean", scopes: ["document", "section"] },
+  // 这两个不继承：仅节点显式给才生效（docxUtil.js sectionConfigOf），所以没有文档级
+  pageNumberStart: { type: "integer", scopes: ["section"], min: 1 },
+  pageNumberFormat: { type: "string", scopes: ["section"], enum: ["decimal", "lowerRoman", "upperRoman"] },
+};
+
+const assertConfigField = (field, scope) => {
+  const spec = DOC_CONFIG_FIELDS[field];
+  if (!spec) {
+    throw new Error(`不可配置的字段: ${field}（允许: ${Object.keys(DOC_CONFIG_FIELDS).join(", ")}）`);
+  }
+  if (!spec.scopes.includes(scope)) {
+    throw new Error(`${field} 不支持${scope === "document" ? "文档级" : "节级"}设置（仅 ${spec.scopes.join("/")}）`);
+  }
+  return spec;
+};
+
+const assertConfigValue = (field, spec, value) => {
+  if (value === null) throw new Error(`${field} 不接受 null——要恢复继承请用 clear`);
+  if (spec.type === "string" && typeof value !== "string") throw new Error(`${field} 必须是字符串`);
+  if (spec.type === "boolean" && typeof value !== "boolean") throw new Error(`${field} 必须是布尔`);
+  if (spec.type === "integer" && (!Number.isInteger(value) || value < (spec.min ?? 0))) {
+    throw new Error(`${field} 必须是不小于 ${spec.min ?? 0} 的整数`);
+  }
+  if (spec.enum && !spec.enum.includes(value)) {
+    throw new Error(`${field} 非法："${value}"（允许：${spec.enum.join(", ")}）`);
+  }
+};
+
+/** 只挑出白名单里显式设过的字段——用于告诉 UI「这一层覆盖了什么」 */
+const explicitConfigOf = (obj, scope) => {
+  const out = {};
+  for (const [field, spec] of Object.entries(DOC_CONFIG_FIELDS)) {
+    if (spec.scopes.includes(scope) && obj && obj[field] !== undefined) out[field] = obj[field];
+  }
+  return out;
+};
+
+/** 有效值只取白名单内的部分：sectionConfigOf 还带版式字段，不该泄进配置面板 */
+const effectiveConfigOf = (meta, breakNode, isFirst) => {
+  const cfg = sectionConfigOf(meta, breakNode, isFirst);
+  const out = {};
+  for (const field of Object.keys(DOC_CONFIG_FIELDS)) out[field] = cfg[field];
+  return out;
+};
 
 // profile 是全局配置，写错静默无效很难查——未知键直接打回
 const PROFILE_KEYS = new Set(["preset", "overrides"]);
@@ -312,7 +368,8 @@ const createService = ({ dbPath, outputDir, profilePath, templatesDir, scoped = 
     }) };
   };
 
-  return {
+  // 具名对象：草稿视图的结构编辑要转调同对象里的 insert/delete/move，需要自引用
+  const methods = {
     listPresets: () => listPresets(),
 
     createDocument: ({ title = "", preset, def }) => {
@@ -509,6 +566,177 @@ const createService = ({ dbPath, outputDir, profilePath, templatesDir, scoped = 
       return withPreviewPdf({ ok: true, path: target, warnings: warns }, target, { preview, pdf });
     },
 
+    /**
+     * 可编辑草稿视图的 HTML（docs/editable-preview.md §3）。
+     * 走和渲染同一条 transform：编号、图表号、{{ref:}} 解析结果必须与 DOCX 一致，
+     * 否则客户在草稿里看到的编号和最终文档对不上。
+     * 不落盘、不碰 LibreOffice——纯内存，随时可调。
+     */
+    getDraftHtml: ({ docId }) => {
+      const doc = getDefDocOrThrow(docId);
+      const cfg = resolveDocConfig({ presetName: doc.preset, docMeta: doc.def.meta || {}, profilePath });
+      const { def: v1def, warnings } = transform(doc.def, {
+        autoNumber: cfg.autoNumber,
+        captionStyle: cfg.captionStyle,
+        target: cfg.target,
+      });
+      const { html, warnings: htmlWarnings } = renderHtml(v1def);
+      return { html, css: EDITOR_CSS, warnings: [...warnings, ...htmlWarnings] };
+    },
+
+    /**
+     * 路径级值编辑（docs/editable-preview.md §3.2.3、§3.3、§3.4）。
+     *
+     * 草稿视图的写回入口：只替换一个字符串叶子，不动结构。内部解析成完整新节点后
+     * 交给和 update_node 同一条路径落库+校验——不新开平行写入口。
+     *
+     * 标记一致性由服务端独立校验：{{ref:}} / {{pageRef:}} 的 id 与顺序必须原样保留。
+     * 前端有 chip 锁定，但那是体验层防线，不能替代这里——绕过前端直接打 API 是常态。
+     */
+    updateNodeValue: ({ docId, id, path: leafPath, value }) => {
+      const doc = getDefDocOrThrow(docId);
+      const contexts = doc.def.contexts || [];
+      const idx = contexts.findIndex((n) => n && n.id === id);
+      if (idx === -1) throw new Error(`节点不存在: ${id}（docId=${docId}）`);
+
+      const current = readPath(contexts[idx], leafPath);
+      if (!current.ok) throw new Error(`路径不存在: ${formatPath(leafPath)}（节点 ${id}）`);
+      const before = markerFingerprint(current.value);
+      const after = markerFingerprint(value);
+      if (before !== after) {
+        throw new Error(
+          `引用标记不可增删改：原 [${before || "无"}]，新 [${after || "无"}]。`
+          + `编号与交叉引用由服务端维护，草稿视图只能改文字`,
+        );
+      }
+
+      const written = writePath(contexts[idx], leafPath, value);
+      if (!written.ok) throw new Error(`${written.message}（节点 ${id}）`);
+
+      const newContexts = [...contexts];
+      newContexts[idx] = normalizeNode(written.node);
+      const updated = store.updateDef(docId, { ...doc.def, contexts: newContexts });
+      const { issues } = validateDoc(updated);
+      return { ok: true, id, path: formatPath(leafPath), issues };
+    },
+
+    /**
+     * 页眉页脚配置读取（docs/editable-preview.md §3.5）。
+     * 同时给出「这一层显式设了什么」和「合并后的有效值」——UI 要靠这两者区分
+     * 继承态和覆盖态，只给有效值的话用户分不清某个值是自己设的还是继承来的。
+     */
+    getDocConfig: ({ docId }) => {
+      const doc = getDefDocOrThrow(docId);
+      const cfg = resolveDocConfig({ presetName: doc.preset, docMeta: doc.def.meta || {}, profilePath });
+      const contexts = doc.def.contexts || [];
+      const sections = contexts
+        .map((n, index) => ({ n, index }))
+        .filter(({ n }) => n && n.type === "sectionBreak")
+        .map(({ n, index }) => ({
+          id: n.id || null,
+          index,
+          brief: nodeBrief(n),
+          set: explicitConfigOf(n, "section"),
+          effective: effectiveConfigOf(cfg.meta, n, false),
+        }));
+      return {
+        fields: DOC_CONFIG_FIELDS,
+        document: {
+          set: explicitConfigOf(doc.def.meta || {}, "document"),
+          // 首节有效值 = preset/profile 合并后的 meta 基准（封面语义只作用第一节）
+          effective: effectiveConfigOf(cfg.meta, null, true),
+        },
+        sections,
+      };
+    },
+
+    /**
+     * 页眉页脚配置写入（§3.5.4）。
+     * set 赋值、clear 恢复继承——**继承必须是删除键，不是置空**：headerText:"" 的语义是
+     * 「本节显式无页眉」，与未设置完全不同（sectionConfigOf 用 !== undefined 判定）。
+     * 写成空字符串会让页眉静默消失且查不出原因。
+     */
+    updateDocConfig: ({ docId, sectionId, set = {}, clear = [] }) => {
+      const doc = getDefDocOrThrow(docId);
+      const scope = sectionId ? "section" : "document";
+      for (const [field, value] of Object.entries(set)) {
+        assertConfigValue(field, assertConfigField(field, scope), value);
+      }
+      for (const field of clear) assertConfigField(field, scope);
+      const overlap = clear.filter((f) => f in set);
+      if (overlap.length) throw new Error(`同一字段不能同时 set 和 clear: ${overlap.join(", ")}`);
+
+      const applyTo = (obj) => {
+        const next = { ...obj, ...set };
+        for (const field of clear) delete next[field];
+        return next;
+      };
+
+      let newDef;
+      if (scope === "document") {
+        newDef = { ...doc.def, meta: applyTo(doc.def.meta || {}) };
+      } else {
+        const contexts = doc.def.contexts || [];
+        const idx = contexts.findIndex((n) => n && n.id === sectionId);
+        if (idx === -1) throw new Error(`节点不存在: ${sectionId}（docId=${docId}）`);
+        if (contexts[idx].type !== "sectionBreak") {
+          throw new Error(`节点 ${sectionId} 是 ${contexts[idx].type}，节级配置只能设在 sectionBreak 上`);
+        }
+        const newContexts = [...contexts];
+        newContexts[idx] = normalizeNode(applyTo(contexts[idx]));
+        newDef = { ...doc.def, contexts: newContexts };
+      }
+      const updated = store.updateDef(docId, newDef);
+      const { issues } = validateDoc(updated);
+      return { ok: true, scope, sectionId: sectionId || null, issues };
+    },
+
+    /**
+     * 草稿视图的块级结构编辑（docs/editable-preview.md §4 P4）。
+     *
+     * 收窄的 UI 通道，转调既有 insertNodes/deleteNodes/moveNodes——不新开平行写路径，
+     * 引用悬空告警、id 分配、校验全部沿用原有逻辑。
+     *
+     * 只做**块级**：整节点的增、删、上下移。段落内 run 的增删不在此列——
+     * text 与 textOptions 是按下标一一对应的平行数组（§3.2.5），增删 run 必须同步
+     * 维护两者，错一格样式和脚注会整体错位；且页面上没有「这是第几个 run」的自然操作
+     * 入口。插图同样不做：src 是文件路径，开放等于给编辑器开一条路径注入面（§3.5.4）。
+     */
+    updateDraftStructure: ({ docId, op, anchorId, text = "" }) => {
+      const doc = getDefDocOrThrow(docId);
+      const contexts = doc.def.contexts || [];
+      const idx = contexts.findIndex((n) => n && n.id === anchorId);
+      if (idx === -1) throw new Error(`节点不存在: ${anchorId}（docId=${docId}）`);
+
+      switch (op) {
+        case "insertBefore":
+        case "insertAfter":
+          // 只允许插普通段落：表格/公式/分节结构复杂，是模型的活
+          return methods.insertNodes({
+            docId, anchorId,
+            position: op === "insertAfter" ? "after" : "before",
+            nodes: [{ type: "text", text: String(text) }],
+          });
+        case "delete":
+          if (contexts.length <= 1) throw new Error("文档至少要留一个节点");
+          return methods.deleteNodes({ docId, ids: [anchorId] });
+        case "moveUp":
+        case "moveDown": {
+          const step = op === "moveUp" ? -1 : 1;
+          const neighbor = contexts[idx + step];
+          if (!neighbor || !neighbor.id) {
+            throw new Error(op === "moveUp" ? "已经是第一个可移动节点" : "已经是最后一个可移动节点");
+          }
+          return methods.moveNodes({
+            docId, ids: [anchorId], anchorId: neighbor.id,
+            position: op === "moveUp" ? "before" : "after",
+          });
+        }
+        default:
+          throw new Error(`未知操作: ${op}（允许: insertBefore, insertAfter, delete, moveUp, moveDown）`);
+      }
+    },
+
     getOutline: ({ docId, section }) => {
       const doc = getDefDocOrThrow(docId);
       return outlineOf(doc.def, section);
@@ -620,6 +848,8 @@ const createService = ({ dbPath, outputDir, profilePath, templatesDir, scoped = 
     _store: store,
     close: () => store.close(),
   };
+
+  return methods;
 };
 
 module.exports = { createService };

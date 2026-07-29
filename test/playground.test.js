@@ -483,3 +483,250 @@ test("McpBridge：超长工具结果截断保护", async () => {
   assert.ok(text.length < long.length);
   assert.match(text, /已截断/);
 });
+
+// ── 草稿视图（docs/editable-preview.md §3，P2）────────────────────
+
+test("McpBridge：UI 专用工具不进模型工具表，但自己调得到", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-draft-"));
+  const { child, url } = await startMcpServer(dir);
+  t.after(() => { child.kill(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+  const bridge = new McpBridge(url, TOKEN);
+  await bridge.connect();
+  const names = bridge.openaiTools.map((x) => x.function.name);
+  assert.ok(!names.includes("get_draft_html"), "UI 工具不该出现在模型工具表里");
+
+  // 建个文档再取草稿，验证桥仍能直接调用被过滤掉的工具
+  const created = await bridge.callTool("create_document", {
+    title: "草稿", def: { contexts: [{ id: "p1", type: "text", text: "正文" }] },
+  });
+  assert.equal(created.isError, false);
+  const { docId } = JSON.parse(created.text);
+
+  const draft = await bridge.callTool("get_draft_html", { docId }, { truncate: false });
+  assert.equal(draft.isError, false);
+  const { html } = JSON.parse(draft.text);
+  assert.match(html, /data-node-id="p1" data-path="text"/);
+});
+
+test("McpBridge：truncate:false 不截断（草稿 HTML 整篇要完整）", async () => {
+  const bridge = new McpBridge("http://127.0.0.1:1/mcp", TOKEN);
+  const long = "x".repeat(30000);
+  bridge.client = { callTool: async () => ({ content: [{ type: "text", text: long }], isError: false }) };
+  const { text } = await bridge.callTool("whatever", {}, { truncate: false });
+  assert.equal(text.length, long.length);
+  assert.ok(!text.includes("已截断"));
+});
+
+test("草稿路由：非法 docId 404，正常 docId 透传 MCP 结果", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-draftapi-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new Store(path.join(dir, "pg.db"));
+  t.after(() => store.close && store.close());
+
+  const payload = JSON.stringify({ html: "<article class=\"ip-doc\"></article>", css: ".ip-leaf{}", warnings: [] });
+  const pool = { for: async () => ({
+    openaiTools: [],
+    callTool: async (name, args, opts) => {
+      assert.equal(name, "get_draft_html");
+      assert.deepEqual(opts, { truncate: false }, "草稿必须走不截断路径");
+      return { text: payload, isError: false };
+    },
+  }) };
+  const base = await startApp(t, store, { bridgePool: pool });
+
+  const r0 = await fetch(`${base}/api/identity`, { method: "POST" });
+  const { recoveryCode } = await r0.json();
+
+  const bad = await fetch(`${base}/api/docs/not-a-uuid/draft`, { headers: authed(recoveryCode) });
+  assert.equal(bad.status, 404);
+
+  const uuid = "00000000-0000-4000-8000-000000000001";
+  const ok = await fetch(`${base}/api/docs/${uuid}/draft`, { headers: authed(recoveryCode) });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await ok.json(), JSON.parse(payload));
+});
+
+test("草稿路由：未鉴权拿不到", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-draftauth-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new Store(path.join(dir, "pg.db"));
+  t.after(() => store.close && store.close());
+  const base = await startApp(t, store);
+  const uuid = "00000000-0000-4000-8000-000000000001";
+  const r = await fetch(`${base}/api/docs/${uuid}/draft`);
+  assert.equal(r.status, 401);
+});
+
+test("写回路由：转发 update_node_value，参数校验不合格打回 400", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-wb-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new Store(path.join(dir, "pg.db"));
+  t.after(() => store.close && store.close());
+
+  const seen = [];
+  const pool = { for: async () => ({
+    openaiTools: [],
+    callTool: async (name, args) => {
+      seen.push({ name, args });
+      return { text: JSON.stringify({ ok: true, id: args.id, path: "text", issues: [] }), isError: false };
+    },
+  }) };
+  const base = await startApp(t, store, { bridgePool: pool });
+  const { recoveryCode } = await (await fetch(`${base}/api/identity`, { method: "POST" })).json();
+  const uuid = "00000000-0000-4000-8000-000000000001";
+  const post = (body) => fetch(`${base}/api/docs/${uuid}/draft`, {
+    method: "POST",
+    headers: { ...authed(recoveryCode), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const ok = await post({ id: "p1", path: ["text"], value: "改过的" });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(seen[0], {
+    name: "update_node_value",
+    args: { docId: uuid, id: "p1", path: ["text"], value: "改过的" },
+  });
+
+  // path 必须是数组、value 必须是字符串——展示形字符串不该被接受
+  assert.equal((await post({ id: "p1", path: "text", value: "x" })).status, 400);
+  assert.equal((await post({ id: "p1", path: ["text"], value: 42 })).status, 400);
+  assert.equal((await post({ path: ["text"], value: "x" })).status, 400);
+  assert.equal(seen.length, 1, "不合格请求不该打到 MCP");
+});
+
+test("写回路由：MCP 侧拒绝时透传 400 而不是 500", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-wb2-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new Store(path.join(dir, "pg.db"));
+  t.after(() => store.close && store.close());
+
+  const pool = { for: async () => ({
+    openaiTools: [],
+    callTool: async () => ({ text: "错误: 引用标记不可增删改", isError: true }),
+  }) };
+  const base = await startApp(t, store, { bridgePool: pool });
+  const { recoveryCode } = await (await fetch(`${base}/api/identity`, { method: "POST" })).json();
+  const r = await fetch(`${base}/api/docs/00000000-0000-4000-8000-000000000001/draft`, {
+    method: "POST",
+    headers: { ...authed(recoveryCode), "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "p1", path: ["text"], value: "删了引用" }),
+  });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /引用标记不可增删改/);
+});
+
+test("McpBridge：写回工具同样不进模型工具表", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-wb3-"));
+  const { child, url } = await startMcpServer(dir);
+  t.after(() => { child.kill(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const bridge = new McpBridge(url, TOKEN);
+  await bridge.connect();
+  const names = bridge.openaiTools.map((x) => x.function.name);
+  assert.ok(!names.includes("update_node_value"), "UI 写回工具不该出现在模型工具表里");
+  assert.ok(names.includes("update_node"), "模型自己的整节点更新工具照常在");
+});
+
+test("配置路由：读写转发 MCP，参数形状不合格打回 400", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-cfg-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new Store(path.join(dir, "pg.db"));
+  t.after(() => store.close && store.close());
+
+  const seen = [];
+  const pool = { for: async () => ({
+    openaiTools: [],
+    callTool: async (name, args) => {
+      seen.push({ name, args });
+      return { text: JSON.stringify({ ok: true, fields: {}, document: {}, sections: [] }), isError: false };
+    },
+  }) };
+  const base = await startApp(t, store, { bridgePool: pool });
+  const { recoveryCode } = await (await fetch(`${base}/api/identity`, { method: "POST" })).json();
+  const uuid = "00000000-0000-4000-8000-000000000001";
+
+  const got = await fetch(`${base}/api/docs/${uuid}/config`, { headers: authed(recoveryCode) });
+  assert.equal(got.status, 200);
+  assert.equal(seen[0].name, "get_doc_config");
+
+  const post = (body) => fetch(`${base}/api/docs/${uuid}/config`, {
+    method: "POST",
+    headers: { ...authed(recoveryCode), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  assert.equal((await post({ set: { headerText: "新页眉" } })).status, 200);
+  assert.deepEqual(seen[1], { name: "update_doc_config", args: { docId: uuid, set: { headerText: "新页眉" } } });
+
+  // clear 走数组，sectionId 可选
+  assert.equal((await post({ sectionId: "sec2", clear: ["headerText"] })).status, 200);
+  assert.deepEqual(seen[2].args, { docId: uuid, sectionId: "sec2", clear: ["headerText"] });
+
+  assert.equal((await post({ set: "不是对象" })).status, 400);
+  assert.equal((await post({ clear: "不是数组" })).status, 400);
+  assert.equal(seen.length, 3, "形状不合格的请求不该打到 MCP");
+});
+
+test("McpBridge：四个 UI 工具全部不进模型工具表", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-uionly-"));
+  const { child, url } = await startMcpServer(dir);
+  t.after(() => { child.kill(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const bridge = new McpBridge(url, TOKEN);
+  await bridge.connect();
+  const names = bridge.openaiTools.map((x) => x.function.name);
+  for (const t2 of ["get_draft_html", "update_node_value", "get_doc_config", "update_doc_config"]) {
+    assert.ok(!names.includes(t2), `${t2} 不该出现在模型工具表里`);
+  }
+  assert.ok(names.includes("update_node") && names.includes("render_document"), "模型自己的工具照常在");
+});
+
+test("结构路由：转发 update_draft_structure，缺参数打回 400", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-struct-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new Store(path.join(dir, "pg.db"));
+  t.after(() => store.close && store.close());
+
+  const seen = [];
+  const pool = { for: async () => ({
+    openaiTools: [],
+    callTool: async (name, args) => {
+      seen.push({ name, args });
+      return { text: JSON.stringify({ newIds: ["n1"], issues: [] }), isError: false };
+    },
+  }) };
+  const base = await startApp(t, store, { bridgePool: pool });
+  const { recoveryCode } = await (await fetch(`${base}/api/identity`, { method: "POST" })).json();
+  const uuid = "00000000-0000-4000-8000-000000000001";
+  const post = (body) => fetch(`${base}/api/docs/${uuid}/structure`, {
+    method: "POST",
+    headers: { ...authed(recoveryCode), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  assert.equal((await post({ op: "insertAfter", anchorId: "p1", text: "新段" })).status, 200);
+  assert.deepEqual(seen[0], {
+    name: "update_draft_structure",
+    args: { docId: uuid, op: "insertAfter", anchorId: "p1", text: "新段" },
+  });
+  assert.equal((await post({ op: "delete" })).status, 400);
+  assert.equal((await post({ anchorId: "p1" })).status, 400);
+  assert.equal((await post({ op: "insertAfter", anchorId: "p1", text: 42 })).status, 400);
+  assert.equal(seen.length, 1, "不合格请求不该打到 MCP");
+});
+
+test("McpBridge：五个 UI 工具全部不进模型工具表", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-uionly2-"));
+  const { child, url } = await startMcpServer(dir);
+  t.after(() => { child.kill(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const bridge = new McpBridge(url, TOKEN);
+  await bridge.connect();
+  const names = bridge.openaiTools.map((x) => x.function.name);
+  for (const t2 of ["get_draft_html", "update_node_value", "get_doc_config",
+    "update_doc_config", "update_draft_structure"]) {
+    assert.ok(!names.includes(t2), `${t2} 不该出现在模型工具表里`);
+  }
+  for (const t2 of ["insert_nodes", "delete_nodes", "move_nodes", "update_node"]) {
+    assert.ok(names.includes(t2), `${t2} 是模型自己的工具，必须在`);
+  }
+});

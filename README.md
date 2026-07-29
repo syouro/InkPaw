@@ -153,6 +153,7 @@ docs/         architecture, specifications, compatibility, and release policy
 - [DeepSeek integration](docs/deepseek.md)
 - [Architecture](docs/architecture.md)
 - [Document node specification](docs/docxUtil-spec.md)
+- [Editable preview design](docs/editable-preview.md) (implemented; image insertion out of scope)
 - [Viewer compatibility](docs/compatibility.md)
 - [Upstream docx issues](docs/upstream-issues.md)
 - [Source snapshot and sync rules](SOURCE_SNAPSHOT.md)
