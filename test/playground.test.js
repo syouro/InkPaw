@@ -730,3 +730,56 @@ test("McpBridge：五个 UI 工具全部不进模型工具表", async (t) => {
     assert.ok(names.includes(t2), `${t2} 是模型自己的工具，必须在`);
   }
 });
+
+test("重渲染路由：转发 render_document 并强制 preview，error 级 issue 打回 400", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "playground-rr-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new Store(path.join(dir, "pg.db"));
+  t.after(() => store.close && store.close());
+
+  const seen = [];
+  let reply = { ok: true, path: "/x.docx", warnings: ["注意事项"] };
+  const pool = { for: async () => ({
+    openaiTools: [],
+    callTool: async (name, args) => {
+      seen.push({ name, args });
+      return { text: JSON.stringify(reply), isError: false };
+    },
+  }) };
+  const base = await startApp(t, store, { bridgePool: pool });
+  const { recoveryCode } = await (await fetch(`${base}/api/identity`, { method: "POST" })).json();
+  const uuid = "00000000-0000-4000-8000-000000000001";
+  const post = () => fetch(`${base}/api/docs/${uuid}/render`, {
+    method: "POST", headers: authed(recoveryCode),
+  });
+
+  const ok = await post();
+  assert.equal(ok.status, 200);
+  assert.deepEqual(seen[0], { name: "render_document", args: { docId: uuid, preview: true } });
+  const body = await ok.json();
+  assert.deepEqual(body.warnings, ["注意事项"]);
+  assert.equal(body.docId, uuid, "应带回产物信息供前端刷新版式视图");
+
+  // 服务端 ok:false（error 级 issue 挡住渲染）不是 HTTP 错误，但对前端应是失败
+  reply = { ok: false, message: "存在 error 级 issue，拒绝渲染", issues: [{ level: "error", message: "表格列数不符" }] };
+  const bad = await post();
+  assert.equal(bad.status, 400);
+  const badBody = await bad.json();
+  assert.match(badBody.error, /拒绝渲染/);
+  assert.equal(badBody.issues.length, 1);
+
+  assert.equal((await fetch(`${base}/api/docs/not-a-uuid/render`, {
+    method: "POST", headers: authed(recoveryCode),
+  })).status, 404);
+});
+
+test("系统提示词：告知模型用户可自行编辑，并划清各自职责", () => {
+  const prompt = fs.readFileSync(path.join(__dirname, "..", "playground", "system-prompt.md"), "utf8");
+  assert.match(prompt, /用户可以自己改文档/);
+  assert.match(prompt, /重新渲染/, "应说明用户能自己重渲");
+  assert.match(prompt, /get_outline/, "应要求改动前拉最新状态而非凭记忆");
+  // 只读边界必须写进提示词，否则模型会建议用户去改改不动的东西
+  for (const kw of ["自动编号", "交叉引用", "目录"]) {
+    assert.ok(prompt.includes(kw), `只读边界应点名 ${kw}`);
+  }
+});

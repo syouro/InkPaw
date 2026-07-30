@@ -381,6 +381,30 @@ function createApp({ store, bridgePool, systemPrompt = SYSTEM_PROMPT, usersRoot 
     }
   });
 
+  // 草稿视图的「重新渲染」：用户在草稿里改完文字，版式视图的 PNG 就过期了。
+  // 不由每次失焦自动触发——渲染要过 LibreOffice（约 5-10 秒），得由用户显式点。
+  // 走和 /api/chat 里同一道并发闸，避免界面按钮绕过排队把 CPU 打满。
+  app.post("/api/docs/:docId/render", async (req, res) => {
+    const { docId } = req.params;
+    if (!UUID_RE.test(docId)) return res.status(404).end();
+    try {
+      const bridge = await bridgePool.for(req.auth.userId);
+      await acquireRender();
+      let result;
+      try {
+        result = await bridge.callTool("render_document", { docId, preview: true });
+      } finally {
+        releaseRender();
+      }
+      if (result.isError) return res.status(400).json({ error: result.text });
+      const parsed = JSON.parse(result.text);
+      if (parsed.ok === false) return res.status(400).json({ error: parsed.message, issues: parsed.issues });
+      res.json({ ok: true, warnings: parsed.warnings || [], ...docInfo(userOutputDir(req.auth.userId), docId) });
+    } catch (e) {
+      res.status(500).json({ error: e.message || "渲染失败" });
+    }
+  });
+
   app.get("/api/docs/:docId/inkpaw.:ext", (req, res) => {
     const { docId, ext } = req.params;
     if (!UUID_RE.test(docId) || !["docx", "pdf"].includes(ext)) return res.status(404).end();

@@ -461,6 +461,36 @@ function armLeaf(leaf) {
   leaf.addEventListener("blur", () => submitLeaf(leaf, sig));
 }
 
+/**
+ * 草稿改完后重新渲染。版式视图的 PNG 不会跟着写回自动更新——渲染要过
+ * LibreOffice（约 5-10 秒），由每次失焦触发既慢又浪费，所以给个显式按钮。
+ * 渲染完自动切到版式视图：点这个按钮的人就是想看排版结果。
+ */
+async function rerender() {
+  const btn = $("#btn-rerender");
+  if (!state.docId || (btn && btn.disabled)) return;
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ 渲染中…"; }
+  try {
+    const r = await authFetch(`/api/docs/${state.docId}/render`, { method: "POST" });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      // error 级 issue 会挡住渲染，逐条说清是哪里不合格，别只丢一句"失败"
+      for (const it of (data.issues || []).filter((i) => i.level === "error")) addNote(`✗ ${it.message}`);
+      throw new Error(data.error || "渲染失败");
+    }
+    for (const w of data.warnings || []) addNote(`⚠ ${w}`);
+    // 先切 tab 再灌数据：setPreview 在草稿 tab 激活时会连带重载草稿，
+    // 那会把当前这个按钮的 DOM 一起换掉，白跑一趟
+    switchPreviewTab("pages");
+    await setPreview(data);
+    addNote("✓ 已重新渲染");
+  } catch (e) {
+    addNote(`✗ ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 重新渲染"; }
+  }
+}
+
 async function loadDraft() {
   const el = $("#preview-draft");
   if (!state.docId) {
@@ -474,13 +504,14 @@ async function loadDraft() {
     const { html, css } = await r.json();
     ensureDraftCss(css);
     // html 的文本内容已在服务端 htmlUtil 逐段转义，结构标签由渲染器生成
-    el.innerHTML = `<div class="draft-status">灰底部分是系统维护的编号与交叉引用，不可编辑。`
-      + `改完点别处即保存；<b>版式视图需重新渲染才会更新</b>。`
+    el.innerHTML = `<div class="draft-status">灰底部分是系统维护的编号与交叉引用，不可编辑。改完点别处即保存。`
+      + `<button id="btn-rerender" class="cfg-open">🔄 重新渲染</button>`
       + `<button id="btn-config" class="cfg-open">⚙ 页眉页脚</button></div>`
       + `<div class="draft-page">${html}</div>`;
     el.querySelectorAll(".ip-leaf").forEach(armLeaf);
     armStructureControls(el);
     $("#btn-config").onclick = openConfig;
+    $("#btn-rerender").onclick = rerender;
   } catch (e) {
     el.innerHTML = `<div class="preview-empty">草稿视图生成失败：${e.message}</div>`;
   }
