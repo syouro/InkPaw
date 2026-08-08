@@ -26,7 +26,8 @@
 - **表格**：纯文本行直接写二维数组 `data:[[...],...]`；带样式用 `{texts:[...]}` 行形。`tableOptions.headerRows` 跨页重复表头；`keepTogether` 小表不拆页；跨行合并（span）必须给 columnWidths。
 - **图片**：base64（≤5MB）；URL 图需显式 `meta.fetchUrlImages:true`。width/height 可省略（等比缩放、超版心缩到版心）。`float` 是 opt-in 浮动图——默认 inline，浮动图不占图号不吃 caption。
 - **公式**：块级 `{type:"math", latex:"..."}`，行内 `textOptions.math:true`。LaTeX 子集：frac/sqrt/求和积分连乘及上下限/上下标/希腊字母/装饰符/矩阵环境/函数名。不支持 align 多行对齐。
-- **分节**：`{type:"sectionBreak", ...}` 平铺分隔（横向页/分栏/独立页眉页脚/重启页码）。重启页码/罗马页码只用于学位论文、标书类前置页，普通报告一律默认。
+- **分页**：多章节正式文档（报告/方案/标书）开 `meta.h1PageBreak:true` 每章自动另起一页（服务端跳过已在新页上的章，不会多空白页），配合封面（blank+居中标题+newPage）和 `toc` 目录页——连排到底的长文档会挤成一坨。单独某段要换页用 `paragraphOptions.pageBreakBefore` 或 `newPage` 节点。
+- **分节**：`{type:"sectionBreak", ...}` 平铺分隔（横向页/分栏/独立页眉页脚/重启页码）。只是换页用 `h1PageBreak`/`newPage` 就够，不要为换页开分节。重启页码/罗马页码只用于学位论文、标书类前置页，普通报告一律默认。
 - **run 级能力**（textOptions）：link、footnote（不支持表格单元格内）、comment、checkbox、math。
 - **标点全半角**：生成时按段落标定 `punctStyle:"full"|"half"`（中文段落全角、西文段落半角；text/heading/table/checklist 节点通用），`meta.punctStyle` 定全文档默认。不标则服务端按内容推断，口径不符会返回 warn 级 `punct-width` 提示（带位置和建议字符），按提示改正即可。
 

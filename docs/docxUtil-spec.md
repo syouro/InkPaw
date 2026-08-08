@@ -28,6 +28,7 @@ await saveReport(def, "out.docx");            // 写盘
 | font | string | 宋体 | 默认字体 |
 | styles | object | — | 覆盖/追加样式，`{default:{heading1:...}, paragraphStyles:[...], characterStyles:[...]}` 按 id 替换；缺 name 自动补 `name: id`（LibreOffice/WPS 按 name 映射样式，缺了作废）；样式里长度写 twips 数值，别用 "0.75cm" 字符串 |
 | numbering | object | — | `{config:[...]}` 追加编号定义（内置 `default-numbering` 三级：`1.` `(2)` `3)`） |
+| h1PageBreak | bool | false | 每个一级标题自动另起一页（transform 层补 `pageBreakBefore`）。文档开头、紧跟 newPage / 换页型 sectionBreak 的章不重复补，不会多出空白页；节点显式写了 `pageBreakBefore` 以节点为准。正式报告/方案书建议开 |
 | punctStyle | string | auto | 标点全半角口径：`"full"` 全角 / `"half"` 半角 / `"auto"` 按内容推断（纯中文段落→全角，无中文→半角，西文为主的混排只查紧邻中文的标点）。节点级 `punctStyle` 可覆盖。校验器按口径给 warn 级 `punct-width` 提示，不阻断渲染；数字/标识符/URL/引用标记里的半角标点不算错 |
 
 ## contexts 节点类型

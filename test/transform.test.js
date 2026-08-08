@@ -218,3 +218,43 @@ test("浮动图：不占图号、caption 丢弃 + warn、{{ref:}} 指向它按�
   const refText = def.contexts.find((n) => n.id === "p-1").text;
   assert.ok(refText.includes("图1") && refText.includes("[引用缺失:img-f]"));
 });
+
+test("h1PageBreak：一级标题自动补 pageBreakBefore，已在新页上的跳过", () => {
+  const { def } = transform({ contexts: [
+    H("h-1", 1, "第一章"),                              // 文档开头 → 不补
+    { id: "p-1", type: "text", text: "正文" },
+    H("h-2", 1, "第二章"),                              // 前面是正文 → 补
+    { type: "newPage" },
+    H("h-3", 1, "第三章"),                              // 紧跟 newPage → 不补
+    { type: "sectionBreak" },
+    H("h-4", 1, "第四章"),                              // 分节默认换页 → 不补
+    { type: "sectionBreak", breakType: "continuous" },
+    H("h-5", 1, "第五章"),                              // continuous 不换页 → 补
+    { id: "p-2", type: "text", text: "正文" },
+    { id: "h-5-1", type: "heading", level: 2, text: "小节" }, // 二级 → 不补
+  ] }, { h1PageBreak: true });
+  const brk = (id) => {
+    const n = def.contexts.find((x) => x.id === id);
+    return !!(n.paragraphOptions && n.paragraphOptions.pageBreakBefore);
+  };
+  assert.strictEqual(brk("h-1"), false);
+  assert.strictEqual(brk("h-2"), true);
+  assert.strictEqual(brk("h-3"), false);
+  assert.strictEqual(brk("h-4"), false);
+  assert.strictEqual(brk("h-5"), true);
+  assert.strictEqual(brk("h-5-1"), false);
+});
+
+test("h1PageBreak：显式 pageBreakBefore（含 false）不被覆盖；开关关闭不动任何节点", () => {
+  const { def } = transform({ contexts: [
+    { id: "p-1", type: "text", text: "正文" },
+    { id: "h-1", type: "heading", level: 1, text: "章", paragraphOptions: { pageBreakBefore: false } },
+  ] }, { h1PageBreak: true });
+  assert.strictEqual(def.contexts.find((n) => n.id === "h-1").paragraphOptions.pageBreakBefore, false);
+
+  const off = transform({ contexts: [
+    { id: "p-1", type: "text", text: "正文" },
+    H("h-1", 1, "章"),
+  ] }, {});
+  assert.ok(!off.def.contexts.find((n) => n.id === "h-1").paragraphOptions);
+});

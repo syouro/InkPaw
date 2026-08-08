@@ -512,6 +512,12 @@ const validate = (def, opts = {}) => {
       'autoNumber:"native" 与 restartNumbering 冲突：原生编号是标题样式级绑定、不随节清零，标题引用会与显示编号错位；需要按节重启编号请改用 autoNumber:true'));
   }
 
+  // meta.h1PageBreak：非布尔静默无效难查
+  if (meta.h1PageBreak !== undefined && typeof meta.h1PageBreak !== "boolean") {
+    issues.push(issue("warn", "h1-pagebreak-invalid",
+      `meta.h1PageBreak 应是 true/false，实际 ${JSON.stringify(meta.h1PageBreak)}（已忽略）`));
+  }
+
   // meta.docProps：写错静默无效难查——未知键/非字符串值都 warn
   if (meta.docProps !== undefined) {
     if (!meta.docProps || typeof meta.docProps !== "object" || Array.isArray(meta.docProps)) {

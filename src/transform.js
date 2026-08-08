@@ -139,6 +139,8 @@ const resolveRefsInText = (text, byId, autoNumber, warnings) => {
  * opts.captionStyle：图题表题样式 { textOptions, paragraphOptions }，来自 preset——
  *                    样式参数不写死在代码里，这里只负责结构展开
  * opts.target：目标查看器（"universal"|"word"），查看器相关特性的默认策略由它定
+ * opts.h1PageBreak：每个一级标题自动另起一页（服务层按三层合并后 meta 传入）——
+ *                   「每章起新页」是语义声明，逐章补分页是机械活，归本层
  */
 const transform = (def, opts = {}) => {
   const meta = def.meta || {};
@@ -169,8 +171,9 @@ const transform = (def, opts = {}) => {
     };
   };
 
+  const srcContexts = def.contexts || [];
   const contexts = [];
-  (def.contexts || []).forEach((node) => {
+  srcContexts.forEach((node, idx) => {
     if (!node || typeof node !== "object") return;
     const entry = node.id ? byId[node.id] : null;
     switch (node.type) {
@@ -181,6 +184,16 @@ const transform = (def, opts = {}) => {
           // 编号是系统算的只读前缀，原文进 raw 作为编辑基准
           overrides.push({ path: ["text"], raw: out.text, prefix: `${entry.number} ` });
           out.text = `${entry.number} ${out.text}`;
+        }
+        if (opts.h1PageBreak && node.level === 1) {
+          // 已经在新页上的不再补：文档开头 / 紧跟 newPage 或 sectionBreak（重复
+          // 分页会凭空多一张空白页）；显式写了 pageBreakBefore 的尊重原值
+          const prev = idx > 0 ? srcContexts[idx - 1] : null;
+          const onFreshPage = !prev || prev.type === "newPage"
+            || (prev.type === "sectionBreak" && prev.breakType !== "continuous"); // continuous 不换页
+          if (!onFreshPage && !(out.paragraphOptions && out.paragraphOptions.pageBreakBefore !== undefined)) {
+            out.paragraphOptions = { ...(out.paragraphOptions || {}), pageBreakBefore: true };
+          }
         }
         const src = srcOf(node.id, overrides);
         contexts.push(src ? { ...out, _src: src } : out);

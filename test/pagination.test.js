@@ -136,3 +136,23 @@ test("monthly-report preset：caption 的 textOptions（字体/字号）落进 r
     cleanup();
   }
 });
+
+test("meta.h1PageBreak：XML 里一级标题带 w:pageBreakBefore，首章和二级标题不带", async () => {
+  const { service, cleanup } = makeService();
+  try {
+    const doc = await renderXml(service, {
+      meta: { h1PageBreak: true },
+      contexts: [
+        { type: "heading", level: 1, text: "概述" },
+        { type: "text", text: "正文内容。" },
+        { type: "heading", level: 1, text: "数据分析" },
+        { type: "heading", level: 2, text: "数据来源" },
+      ],
+    });
+    assert.ok(!paragraphOf(doc, "概述").includes("<w:pageBreakBefore/>"), "首章在文档开头，不该另起一页");
+    assert.ok(paragraphOf(doc, "数据分析").includes("<w:pageBreakBefore/>"), "第二章应带 pageBreakBefore");
+    assert.ok(!paragraphOf(doc, "数据来源").includes("<w:pageBreakBefore/>"), "二级标题不换页");
+  } finally {
+    cleanup();
+  }
+});

@@ -553,6 +553,7 @@ const createService = ({ dbPath, outputDir, profilePath, templatesDir, scoped = 
         autoNumber: cfg.autoNumber,
         captionStyle: cfg.captionStyle,
         target: cfg.target,
+        h1PageBreak: cfg.meta.h1PageBreak === true,
       });
       // 文档属性 title 缺省用建档时的 title（Word「文件-信息」面板可见）
       const docProps = doc.title && !(cfg.meta.docProps && cfg.meta.docProps.title)
@@ -579,6 +580,7 @@ const createService = ({ dbPath, outputDir, profilePath, templatesDir, scoped = 
         autoNumber: cfg.autoNumber,
         captionStyle: cfg.captionStyle,
         target: cfg.target,
+        h1PageBreak: cfg.meta.h1PageBreak === true,
       });
       const { html, warnings: htmlWarnings } = renderHtml(v1def);
       return { html, css: EDITOR_CSS, warnings: [...warnings, ...htmlWarnings] };
