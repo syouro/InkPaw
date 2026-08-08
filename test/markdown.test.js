@@ -360,3 +360,54 @@ test("集成：空 markdown 报错；imagesDir 相对 baseDir 解析", () => {
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------- titleFromH1
+
+test("titleFromH1：首个 H1 转标题段并返回 docTitle，后续标题上移一级", () => {
+  const md = "# 技术方案\n\n摘要段落。\n\n[toc]\n\n## 概述\n\n### 背景\n\n正文。\n\n## 架构\n";
+  const { contexts, docTitle } = markdownToDef(md, { titleFromH1: true, autoNumber: true });
+  assert.strictEqual(docTitle, "技术方案");
+  assert.deepStrictEqual(contexts[0], {
+    type: "text", text: "技术方案",
+    paragraphOptions: { style: "ParagraphTitle", alignment: "center" },
+  });
+  const headings = contexts.filter((n) => n.type === "heading");
+  assert.deepStrictEqual(headings.map((n) => [n.level, n.text]),
+    [[1, "概述"], [2, "背景"], [1, "架构"]], "## → 1 级、### → 2 级");
+});
+
+test("titleFromH1 关闭（默认）：H1 仍是一级标题，不返回 docTitle", () => {
+  const { contexts, docTitle } = markdownToDef("# 技术方案\n\n## 概述\n");
+  assert.strictEqual(docTitle, undefined);
+  assert.deepStrictEqual(contexts[0], { type: "heading", level: 1, text: "技术方案" });
+  assert.strictEqual(contexts[1].level, 2);
+});
+
+test("titleFromH1：首个 heading 不是 H1 时不生效；正文再现 H1 → warn", () => {
+  const noH1 = markdownToDef("## 直接二级开头\n", { titleFromH1: true });
+  assert.deepStrictEqual(noH1.contexts[0], { type: "heading", level: 2, text: "直接二级开头" });
+
+  const dup = markdownToDef("# 标题\n\n## 章一\n\n# 又一个一级\n", { titleFromH1: true });
+  assert.ok(dup.issues.some((i) => i.rule === "md-title-multiple-h1"));
+  const hs = dup.contexts.filter((n) => n.type === "heading");
+  assert.deepStrictEqual(hs.map((n) => n.level), [1, 1], "上移后的章和残留 H1 同级");
+});
+
+test("titleFromH1 集成：建档标题缺省用 docTitle，标题段不进 toc 不吃编号", async () => {
+  const { service, cleanup } = makeService();
+  try {
+    const md = "# 巡检系统方案\n\n[toc]\n\n## 概述\n\n正文。\n";
+    const { docId } = service.createDocumentFromMarkdown({ markdown: md, titleFromH1: true });
+    const outline = service.getOutline({ docId });
+    const h = outline.find((n) => n.type === "heading");
+    assert.strictEqual(h.sectionPath, "1", "概述是第 1 章");
+    const res = await service.renderDocument({ docId });
+    assert.strictEqual(res.ok, true);
+    const zip = await JSZip.loadAsync(fs.readFileSync(res.path));
+    const doc = await zip.file("word/document.xml").async("string");
+    assert.ok(!doc.includes("1 巡检系统方案"), "标题没被编号");
+    assert.match(doc, /ParagraphTitle/);
+  } finally {
+    cleanup();
+  }
+});

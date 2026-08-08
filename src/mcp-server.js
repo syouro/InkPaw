@@ -55,6 +55,7 @@ const createMcpServer = (service) => {
       baseDir: pathSchema.optional().describe("图片相对路径的基准目录，缺省服务进程 cwd"),
       imagesDir: pathSchema.optional().describe("图片子目录（相对 baseDir），缺省 baseDir 本身"),
       meta: z.record(z.string(), z.any()).optional().describe("文档级 meta 覆盖。{autoNumber:false} 保留标题手写编号；{target:\"word\"} 表示收件人确定用 Word（[toc] 出原生目录域带页码），默认 universal 兼容一切查看器"),
+      titleFromH1: z.boolean().optional().describe("Markdown 是「# 文档标题 / ## 章」写法时设 true：首个 H1 转为标题段（居中大字，不编号不进 [toc]），后续标题上移一级，章的编号和 h1PageBreak 每章起新页才会正确。首个 # 就是第一章时保持默认 false"),
     },
   }, wrap((args) => service.createDocumentFromMarkdown(args)));
 

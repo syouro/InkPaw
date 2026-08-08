@@ -277,7 +277,7 @@ const EXAMPLES = {
 
   meta: {
     brief: "文档级配置：autoNumber / target / h1PageBreak / headerText / headerImage / imagesDir 等",
-    usage: "能不写就不写，样式交给 preset。常用：autoNumber（编号：true 服务端文本编号默认开 / false 关 / \"native\" Word 原生多级编号，实验特性）、target（universal 默认 / word）、h1PageBreak（true = 每个一级标题自动另起一页，正式报告/方案书建议开；服务端会跳过已在新页上的章，不会多出空白页）、headerText（页眉文字，靠右）、headerImage / footerImage（页眉页脚图 { src, width?, height? }，px、可省略等比缩放——图靠左，文字/页码靠右，适合 logo）、imagesDir（图片基准目录）、fetchUrlImages（URL 图抓取开关）、docProps（文档属性：title/subject/creator/keywords/description，Word「文件-信息」可见；title 缺省用建档 title）。",
+    usage: "能不写就不写，样式交给 preset。常用：autoNumber（编号：true 服务端文本编号默认开 / false 关 / \"native\" Word 原生多级编号，实验特性）、target（universal 默认 / word）、h1PageBreak（每个一级标题自动另起一页，monthly-report preset 默认开、短文档可 false 关；服务端会跳过已在新页上的章，不会多出空白页）、headerText（页眉文字，靠右）、headerImage / footerImage（页眉页脚图 { src, width?, height? }，px、可省略等比缩放——图靠左，文字/页码靠右，适合 logo）、imagesDir（图片基准目录）、fetchUrlImages（URL 图抓取开关）、docProps（文档属性：title/subject/creator/keywords/description，Word「文件-信息」可见；title 缺省用建档 title）。",
     example: {
       meta: {
         headerText: "2026 年 6 月监测月报",
@@ -294,13 +294,13 @@ const EXAMPLES = {
       "target: \"word\" = 收件人确定用 Word 打开，查看器相关特性走 Word 最优解（如 toc 出原生域带页码）；默认 universal 保证任何查看器立即可见",
       "autoNumber: \"native\" 只用于「收件人要在 Word 里继续增删章节维护」的文档——编号绑在标题样式上，Word 里新增/删除标题自动重排。一次性交付/预览用默认 true 即可（视觉相同）。native 的取舍：{{ref:}}、图表号、静态目录仍是文本，生成时刻与编号一致，但收件人改章节后它们不跟着变；restartNumbering 对 native 无效（编号全局连续，校验会 warn）",
       "字体字号边距这些不要写进 meta，改 preset 或 style profile",
-      "多章节的正式文档（报告/方案/标书）默认挤在连续页面上会显得密不透风：建议 meta.h1PageBreak:true 每章起新页，配合封面（blank+居中标题+newPage）和 toc 目录页。只要「换页」用 h1PageBreak 就够；sectionBreak 留给需要横向页/独立页眉页脚/重启页码的场景",
+      "多章节正式文档连排到底会显得密不透风：monthly-report preset 已默认 h1PageBreak 每章起新页（短文档/备忘 meta.h1PageBreak:false 可关），配合封面（blank+居中标题+newPage）和 toc 目录页。只要「换页」用 h1PageBreak 就够；sectionBreak 留给需要横向页/独立页眉页脚/重启页码的场景",
     ],
   },
 
   markdown: {
     brief: "create_document_from_markdown：Markdown 直接建档",
-    usage: "支持标题/段落/列表/表格/代码块/引用/图片/[toc]/超链接/加粗斜体行内代码/$...$ 公式/[^1] 脚注。手写编号的标题会自动剥掉交给 autoNumber（不想剥就 meta.autoNumber:false）。",
+    usage: "支持标题/段落/列表/表格/代码块/引用/图片/[toc]/超链接/加粗斜体行内代码/$...$ 公式/[^1] 脚注。手写编号的标题会自动剥掉交给 autoNumber（不想剥就 meta.autoNumber:false）。Markdown 是「# 文档标题 / ## 章」写法时传 titleFromH1:true——首个 H1 转为居中标题段（不编号不进 [toc]），后续标题上移一级，章编号和 h1PageBreak 每章起新页才正确；首个 # 就是第一章则保持默认。",
     example: {
       title: "示例文档",
       preset: "monthly-report",

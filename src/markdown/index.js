@@ -12,6 +12,10 @@
  *   bulletRef     无序列表 numbering reference（preset 里定义，默认 md-bullet）
  *   autoNumber    服务端自动编号开关：开着时剥掉 heading 手写编号（交给 autoNumber，
  *                 避免双重编号）；想保留手写编号走 meta.autoNumber=false
+ *   titleFromH1   全文首个 heading 是 H1 时把它当文档标题（居中大字，不编号不进
+ *                 toc），后续标题整体上移一级——「# 标题 / ## 章」的常见 Markdown
+ *                 写法用它才能得到正确的章编号和 h1PageBreak 行为。返回值附带
+ *                 docTitle 供建档标题缺省
  *
  * 样式约定：转换器只发样式引用，参数活在 preset JSON——
  *   正文 normalParagraph / 列表 mdList / 代码块 mdCode / 引用 mdQuote /
@@ -92,7 +96,22 @@ const dispatch = (tokens, i, ctx, emit, env) => {
     case "heading_open": {
       const level = Number(tok.tag.slice(1));
       const text = stripManualNumber(inlineToPlainText(tokens[i + 1].children), ctx);
-      emit({ type: "heading", level, text });
+      // titleFromH1：全文首个 heading 是 H1 → 文档标题段（居中大字，不进编号
+      // 树也不进 toc），后续标题整体上移一级（## 章 → level 1）。「首个 H1 是
+      // 标题还是第一章」只有作者知道，所以由调用方显式声明，不做启发式猜测
+      if (ctx.opts.titleFromH1 && !ctx.seenHeading && level === 1) {
+        ctx.seenHeading = true;
+        ctx.titleShift = true;
+        ctx.docTitle = text;
+        emit({ type: "text", text, paragraphOptions: { style: "ParagraphTitle", alignment: "center" } });
+        return skipTo(tokens, i, "heading_close");
+      }
+      ctx.seenHeading = true;
+      if (ctx.titleShift && level === 1) {
+        ctx.addIssue("warn", "md-title-multiple-h1",
+          `titleFromH1 已把首个 H1 当作文档标题，但正文又出现 H1「${text}」——它会和上移后的原 H2 同级；章标题请统一用 ##`);
+      }
+      emit({ type: "heading", level: ctx.titleShift ? Math.max(1, level - 1) : level, text });
       return skipTo(tokens, i, "heading_close");
     }
     case "paragraph_open": {
@@ -165,6 +184,9 @@ const markdownToDef = (markdown, opts = {}) => {
     strippedHeadings: [],
     footnotes: null, // [^1] 定义 id → 纯文本，parse 后预扫填入
     footnoteRefCounts: new Map(),
+    seenHeading: false, // titleFromH1 只认全文首个 heading
+    titleShift: false,
+    docTitle: null,
   };
   const tokens = md.parse(String(markdown), {});
   ctx.footnotes = collectFootnotes(tokens);
@@ -180,7 +202,7 @@ const markdownToDef = (markdown, opts = {}) => {
     ctx.addIssue("warn", "md-heading-number",
       `autoNumber 开启，已剥掉 ${ctx.strippedHeadings.length} 处 heading 手写编号（${sample}），编号由服务端接管；要保留原编号请设 meta.autoNumber=false`);
   }
-  return { contexts, issues: ctx.issues };
+  return { contexts, issues: ctx.issues, ...(ctx.docTitle ? { docTitle: ctx.docTitle } : {}) };
 };
 
 module.exports = { markdownToDef };

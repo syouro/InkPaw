@@ -12,7 +12,7 @@
 
 **① 自由生成（最常用）**：`create_document`（def = `{meta?, contexts:[节点...]}`）→ 看返回 issues（error 必须清零才能渲染，warn 斟酌处理）→ `render_document`。节点类型：text/heading/table/image/toc/checklist/math/sectionBreak/newPage/blank。
 
-**② Markdown 输入**：`create_document_from_markdown`。支持标题/列表/表格/代码块/引用/图片/[toc]/超链接/`$...$` 公式/`[^1]` 脚注/`- [ ]` 任务列表；手写编号标题自动剥掉交给 autoNumber。适合用户直接贴来一篇 markdown；要精细控制（跨行合并表格、浮动图、分节）用 def 流。
+**② Markdown 输入**：`create_document_from_markdown`。支持标题/列表/表格/代码块/引用/图片/[toc]/超链接/`$...$` 公式/`[^1]` 脚注/`- [ ]` 任务列表；手写编号标题自动剥掉交给 autoNumber。适合用户直接贴来一篇 markdown；要精细控制（跨行合并表格、浮动图、分节）用 def 流。**贴来的 markdown 是「`#` 文档标题 / `##` 章」写法时传 `titleFromH1:true`**（首个 H1 转居中标题段、后续标题上移一级），否则章编号会错一级、每章起新页也不生效。
 
 **③ 模板填槽**：只在**固定版式**场景用（合同/证明/带公司抬头的公文）——自由结构一律走 def 流。`register_template` → `create_document_from_template` → `update_template_slots` → 渲染复用 `render_document`。
 
@@ -26,7 +26,7 @@
 - **表格**：纯文本行直接写二维数组 `data:[[...],...]`；带样式用 `{texts:[...]}` 行形。`tableOptions.headerRows` 跨页重复表头；`keepTogether` 小表不拆页；跨行合并（span）必须给 columnWidths。
 - **图片**：base64（≤5MB）；URL 图需显式 `meta.fetchUrlImages:true`。width/height 可省略（等比缩放、超版心缩到版心）。`float` 是 opt-in 浮动图——默认 inline，浮动图不占图号不吃 caption。
 - **公式**：块级 `{type:"math", latex:"..."}`，行内 `textOptions.math:true`。LaTeX 子集：frac/sqrt/求和积分连乘及上下限/上下标/希腊字母/装饰符/矩阵环境/函数名。不支持 align 多行对齐。
-- **分页**：多章节正式文档（报告/方案/标书）开 `meta.h1PageBreak:true` 每章自动另起一页（服务端跳过已在新页上的章，不会多空白页），配合封面（blank+居中标题+newPage）和 `toc` 目录页——连排到底的长文档会挤成一坨。单独某段要换页用 `paragraphOptions.pageBreakBefore` 或 `newPage` 节点。
+- **分页**：`meta.h1PageBreak` 每章自动另起一页（服务端跳过已在新页上的章，不会多空白页），**monthly-report preset 默认开**；短文档/备忘不想章章换页就 `meta.h1PageBreak:false` 关掉。正式报告配合封面（blank+居中标题+newPage）和 `toc` 目录页。单独某段要换页用 `paragraphOptions.pageBreakBefore` 或 `newPage` 节点。
 - **分节**：`{type:"sectionBreak", ...}` 平铺分隔（横向页/分栏/独立页眉页脚/重启页码）。只是换页用 `h1PageBreak`/`newPage` 就够，不要为换页开分节。重启页码/罗马页码只用于学位论文、标书类前置页，普通报告一律默认。
 - **run 级能力**（textOptions）：link、footnote（不支持表格单元格内）、comment、checkbox、math。
 - **标点全半角**：生成时按段落标定 `punctStyle:"full"|"half"`（中文段落全角、西文段落半角；text/heading/table/checklist 节点通用），`meta.punctStyle` 定全文档默认。不标则服务端按内容推断，口径不符会返回 warn 级 `punct-width` 提示（带位置和建议字符），按提示改正即可。

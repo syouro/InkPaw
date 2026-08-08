@@ -102,6 +102,7 @@
     "headerSize": 18,
     "pageNumber": true,
     "titlePage": true,
+    "h1PageBreak": true,
     "margins": {
       "top": "2.54cm",
       "right": "3.17cm",

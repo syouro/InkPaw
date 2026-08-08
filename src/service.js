@@ -384,7 +384,7 @@ const createService = ({ dbPath, outputDir, profilePath, templatesDir, scoped = 
       return { docId: doc.id, preset: cfg.preset, issues };
     },
 
-    createDocumentFromMarkdown: ({ title = "", preset, markdown, baseDir, imagesDir, meta = {} }) => {
+    createDocumentFromMarkdown: ({ title = "", preset, markdown, baseDir, imagesDir, meta = {}, titleFromH1 = false }) => {
       if (typeof markdown !== "string" || !markdown.trim()) {
         throw new Error("markdown 必须是非空字符串");
       }
@@ -393,15 +393,17 @@ const createService = ({ dbPath, outputDir, profilePath, templatesDir, scoped = 
       const imgDir = imagesDir || cfg.meta.imagesDir || ".";
       // imagesDir 落成绝对路径存进 def：渲染/校验不再依赖调用时的 cwd
       const imagesAbsDir = path.isAbsolute(imgDir) ? imgDir : path.resolve(base, imgDir);
-      const { contexts, issues: mdIssues } = markdownToDef(markdown, {
+      const { contexts, issues: mdIssues, docTitle } = markdownToDef(markdown, {
         imagesAbsDir,
         imageMaxWidth: cfg.markdown && cfg.markdown.imageMaxWidth,
         autoNumber: cfg.autoNumber,
         fetchUrlImages: cfg.meta.fetchUrlImages === true,
+        titleFromH1: titleFromH1 === true,
       });
       // meta 透传进 def（autoNumber 关闭、headerText 等），imagesDir 以解析结果为准
       const def = { meta: { ...meta, imagesDir: imagesAbsDir }, contexts: fillNodeIds(contexts) };
-      const doc = store.createDocument({ title, preset: cfg.preset, def });
+      // 建档标题缺省用 titleFromH1 提出来的文档标题（docProps.title 随之受益）
+      const doc = store.createDocument({ title: title || docTitle || "", preset: cfg.preset, def });
       const { issues } = validateDoc(doc);
       return { docId: doc.id, preset: cfg.preset, issues: [...mdIssues, ...issues] };
     },
