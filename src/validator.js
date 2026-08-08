@@ -114,6 +114,101 @@ const collectPageRefs = (node) => collectByRe(node, PAGEREF_RE);
 // 内链和 pageRef 的合法目标一致
 const BOOKMARKABLE_TYPES = new Set(["heading", "image", "table"]);
 
+// ---- 标点全半角（punctStyle）----
+// 「模型标定口径、代码执行检查」：节点/meta 可声明 punctStyle（"full"|"half"），
+// 未声明按内容推断——纯/主中文段落全角、无中文段落半角、西文为主的混排只查
+// 紧邻中文的半角标点（保守口径，避免误报）。全部 warn 级，不阻断渲染。
+const CJK_RE = /[㐀-䶿一-鿿豈-﫿]/;
+const HALF_TO_FULL = { ",": "，", ".": "。", ";": "；", ":": "：", "?": "？", "!": "！", "(": "（", ")": "）" };
+const FULL_TO_HALF = { "，": ",", "。": ".", "；": ";", "：": ":", "？": "?", "！": "!", "（": "(", "）": ")" };
+const PUNCT_STYLES = new Set(["full", "half", "auto"]);
+const ASCII_ALNUM = /[A-Za-z0-9]/;
+// URL 里的 :/. 不是排版意义上的标点；连同引用标记一起换成对象占位符（￼），
+// 既不参与判定、也不给相邻字符当上下文
+const URL_RE = /https?:\/\/[^\s㐀-鿿豈-﫿，。；：！？（）"'<>]+/gi;
+
+const inferPunctStyle = (s) => {
+  const cjk = (s.match(/[㐀-䶿一-鿿豈-﫿]/g) || []).length;
+  if (cjk === 0) return "half";
+  const latin = (s.match(/[A-Za-z]/g) || []).length;
+  return cjk >= latin ? "full" : "mixed";
+};
+
+const snippetOf = (s, i) => s.slice(Math.max(0, i - 4), i + 5).replace(/[\s\uFFFC]+/g, " ");
+
+/** 找出一段文本里与口径不符的标点：[{ ch, suggest, snippet }] */
+const punctFindingsOf = (raw, declared) => {
+  if (typeof raw !== "string" || !raw) return [];
+  const s = raw.replace(MARKER_RE, "\uFFFC").replace(URL_RE, "\uFFFC");
+  const style = declared && declared !== "auto" ? declared : inferPunctStyle(s);
+  const found = [];
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    const prev = s[i - 1] || "";
+    const next = s[i + 1] || "";
+    const toFull = HALF_TO_FULL[ch];
+    if (toFull) {
+      if (style === "half") continue;
+      // 数字/标识符里的半角标点不算错：3.14、1,000、Node.js、16:30、f(x)、"1." 序号
+      if (ASCII_ALNUM.test(prev) && ASCII_ALNUM.test(next)) continue;
+      if (ch === "." && ASCII_ALNUM.test(prev)) continue;
+      const cjkAdjacent = CJK_RE.test(ch === "(" ? next : prev);
+      // 括号成对包裹西文太常见（f(x)、(a)），full 口径下也只按紧邻中文判
+      const hit = style === "full" ? (ch !== "(" && ch !== ")") || cjkAdjacent : cjkAdjacent;
+      if (hit) found.push({ ch, suggest: toFull, snippet: snippetOf(s, i) });
+      continue;
+    }
+    const toHalf = FULL_TO_HALF[ch];
+    if (toHalf) {
+      if (style === "full") continue;
+      const hit = style === "half"
+        || (!CJK_RE.test(prev) && !CJK_RE.test(next) && (ASCII_ALNUM.test(prev) || ASCII_ALNUM.test(next)));
+      if (hit) found.push({ ch, suggest: toHalf, snippet: snippetOf(s, i) });
+    }
+  }
+  return found;
+};
+
+/**
+ * 节点里参与标点检查的文本单元。text 节点多 run 拼成一个段落（run 边界上的
+ * 相邻关系是真实的）；行内公式 run 是 LaTeX，整段换占位符跳过。
+ */
+const punctUnitsOf = (node) => {
+  switch (node.type) {
+    case "text": {
+      const runs = Array.isArray(node.text) ? node.text : [node.text];
+      const optsArr = Array.isArray(node.textOptions) ? node.textOptions : null;
+      const single = !optsArr && node.textOptions ? node.textOptions : null;
+      if (single && single.math === true) return [];
+      return [runs.map((t, i) => {
+        if (typeof t !== "string") return "\uFFFC";
+        const o = optsArr ? optsArr[i] : single;
+        return o && o.math === true ? "\uFFFC" : t;
+      }).join("")];
+    }
+    case "heading":
+      return [Array.isArray(node.text)
+        ? node.text.filter((t) => typeof t === "string").join("") : node.text];
+    case "checklist":
+      return (Array.isArray(node.items) ? node.items : [])
+        .map((it) => (typeof it === "string" ? it : it && it.text));
+    case "table": {
+      const units = [];
+      for (const row of Array.isArray(node.data) ? node.data : []) {
+        if (!row || !Array.isArray(row.texts)) continue;
+        for (const cell of row.texts) {
+          const t = cell && typeof cell === "object" && !Array.isArray(cell) ? cell.text : cell;
+          if (Array.isArray(t)) units.push(...t);
+          else units.push(t);
+        }
+      }
+      return units;
+    }
+    default:
+      return [];
+  }
+};
+
 const ROW_SHAPE_HINT = "行应为 { texts: [...] } 或直接写数组（二维数组简写）";
 
 /**
@@ -697,6 +792,31 @@ const validate = (def, opts = {}) => {
           `link "${link}" 协议不允许（仅 http(s):// / mailto: / #内链）`, node.id));
       }
     });
+  });
+
+  // ---- 标点全半角口径（punctStyle 声明 → meta 默认 → 按内容推断）
+  const metaPunct = mergedMeta.punctStyle;
+  if (metaPunct !== undefined && !PUNCT_STYLES.has(metaPunct)) {
+    issues.push(issue("warn", "punct-style-invalid",
+      `meta.punctStyle 非法："${metaPunct}"（允许：full/half/auto），已按 auto 推断`));
+  }
+  contexts.forEach((node) => {
+    if (!node || typeof node !== "object") return;
+    let declared = node.punctStyle;
+    if (declared !== undefined && !PUNCT_STYLES.has(declared)) {
+      issues.push(issue("warn", "punct-style-invalid",
+        `punctStyle 非法："${declared}"（允许：full/half/auto），已按 auto 推断`, node.id));
+      declared = undefined;
+    }
+    if (declared === undefined && PUNCT_STYLES.has(metaPunct)) declared = metaPunct;
+    const found = [];
+    for (const unit of punctUnitsOf(node)) found.push(...punctFindingsOf(unit, declared));
+    if (found.length === 0) return;
+    const examples = found.slice(0, 3)
+      .map((f) => `「${f.snippet}」的 "${f.ch}" 建议 "${f.suggest}"`).join("；");
+    issues.push(issue("warn", "punct-width",
+      `标点全半角与段落口径不符 ${found.length} 处：${examples}${found.length > 3 ? " 等" : ""}` +
+      "——中文段落用全角、西文段落用半角；节点或 meta 可加 punctStyle:\"full\"|\"half\" 显式标定", node.id));
   });
 
   return issues.map((it) => withExampleHint(it));

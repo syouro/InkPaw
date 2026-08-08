@@ -28,6 +28,7 @@ await saveReport(def, "out.docx");            // 写盘
 | font | string | 宋体 | 默认字体 |
 | styles | object | — | 覆盖/追加样式，`{default:{heading1:...}, paragraphStyles:[...], characterStyles:[...]}` 按 id 替换；缺 name 自动补 `name: id`（LibreOffice/WPS 按 name 映射样式，缺了作废）；样式里长度写 twips 数值，别用 "0.75cm" 字符串 |
 | numbering | object | — | `{config:[...]}` 追加编号定义（内置 `default-numbering` 三级：`1.` `(2)` `3)`） |
+| punctStyle | string | auto | 标点全半角口径：`"full"` 全角 / `"half"` 半角 / `"auto"` 按内容推断（纯中文段落→全角，无中文→半角，西文为主的混排只查紧邻中文的标点）。节点级 `punctStyle` 可覆盖。校验器按口径给 warn 级 `punct-width` 提示，不阻断渲染；数字/标识符/URL/引用标记里的半角标点不算错 |
 
 ## contexts 节点类型
 
@@ -45,6 +46,7 @@ await saveReport(def, "out.docx");            // 写盘
 - `textOptions`：透传 docx TextRun（`font/size/bold/italics/color/underline`…）
 - `paragraphOptions`：透传 docx Paragraph（`alignment/style/indent/spacing/numbering/pageBreakBefore`…）
 - 正文段落**优先用 `style: "normalParagraph"`**（宋体小四、首行缩进 0.75cm、两端对齐、1.5 倍行距），别手写这几项
+- `punctStyle`：本段标点全半角口径（`"full"`|`"half"`），生成时按段落标定，中文段落全角、西文段落半角；不写则按内容自动推断。text/heading/table/checklist 节点通用，覆盖 meta.punctStyle
 - 封面主标题可用 `style: "ParagraphTitle"`（方正小标宋简体）
 
 ### heading — 标题（自动进目录层级）

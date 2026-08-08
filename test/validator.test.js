@@ -537,3 +537,84 @@ test("表格行级/格级 numbering 同样受白名单约束", () => {
   assert.ok(hits.some((i) => /nope-row/.test(i.message) && /第 0 行/.test(i.message)));
   assert.ok(hits.some((i) => /nope-cell/.test(i.message) && /第 1 行第 0 格/.test(i.message)));
 });
+
+// ---- 标点全半角（punctStyle）----
+
+test("标点全半角：中文段落里的半角标点 → warn，带位置和建议", () => {
+  const issues = validate({ contexts: [
+    { id: "p-1", type: "text", text: "结论如下:第一,情况良好!" },
+  ] });
+  const hit = issues.find((i) => i.rule === "punct-width");
+  assert.ok(hit);
+  assert.strictEqual(hit.nodeId, "p-1");
+  assert.match(hit.message, /3 处/);
+  assert.match(hit.message, /建议 "："/);
+});
+
+test("标点全半角：纯西文段落里的全角标点 → warn", () => {
+  const issues = validate({ contexts: [
+    { type: "text", text: "See the docs，then continue。" },
+  ] });
+  assert.ok(rules(issues).includes("punct-width"));
+});
+
+test("标点全半角：数字/标识符/URL/引用标记/行内公式不误报", () => {
+  const issues = validate({ contexts: [
+    { id: "h-1", type: "heading", level: 1, text: "1. 概述" },
+    { type: "text", text: "增长 3.14 倍（约 1,000 条），详见 Node.js 与 https://example.com/a:b?q=1 和 {{ref:h-1}}。" },
+    { type: "text", text: ["公式 ", "x_{1,2}=f(a,b)", " 成立。"],
+      textOptions: [{}, { math: true }, {}] },
+    { type: "text", text: "函数 f(x) 在 16:30 验证。" },
+  ] });
+  assert.ok(!rules(issues).includes("punct-width"));
+});
+
+test("标点全半角：西文为主的混排只查紧邻中文，不动纯西文标点", () => {
+  const issues = validate({ contexts: [
+    { type: "text", text: "This paragraph mentions 中文 only briefly, and that is fine." },
+    { type: "text", text: "The term 术语,appears here." }, // 半角逗号紧贴中文 → 报
+  ] });
+  assert.strictEqual(issues.filter((i) => i.rule === "punct-width").length, 1);
+});
+
+test("punctStyle 显式声明优先于内容推断", () => {
+  const issues = validate({ contexts: [
+    { type: "text", punctStyle: "half", text: "All good, really." },
+    { id: "p-bad", type: "text", punctStyle: "half", text: "Wrong width。" },
+    { type: "text", punctStyle: "full", text: "中文口径（正确）。" },
+  ] });
+  const hits = issues.filter((i) => i.rule === "punct-width");
+  assert.strictEqual(hits.length, 1);
+  assert.strictEqual(hits[0].nodeId, "p-bad");
+});
+
+test("meta.punctStyle 提供全文档默认，节点声明可覆盖", () => {
+  const issues = validate({
+    meta: { punctStyle: "full" },
+    contexts: [
+      { id: "p-1", type: "text", text: "结论如下:" },          // 跟 meta 的 full → 报
+      { type: "text", punctStyle: "half", text: "English, ok." }, // 节点覆盖 → 不报
+    ],
+  });
+  const hits = issues.filter((i) => i.rule === "punct-width");
+  assert.strictEqual(hits.length, 1);
+  assert.strictEqual(hits[0].nodeId, "p-1");
+});
+
+test("punctStyle 非法值 → warn 并回退 auto", () => {
+  const issues = validate({ contexts: [
+    { type: "text", punctStyle: "fullwidth", text: "你好。" },
+  ] });
+  assert.ok(rules(issues).includes("punct-style-invalid"));
+  assert.ok(!rules(issues).includes("punct-width"));
+});
+
+test("表格单元格与 checklist 项也查标点", () => {
+  const issues = validate({ contexts: [
+    { id: "t-1", type: "table", columnWidths: [1000, 1000],
+      data: [{ texts: ["情况良好,", { text: "正常。" }] }] },
+    { id: "c-1", type: "checklist", items: ["检查完毕.", { text: "全角（对）。" }] },
+  ] });
+  const hits = issues.filter((i) => i.rule === "punct-width");
+  assert.deepStrictEqual(hits.map((i) => i.nodeId).sort(), ["c-1", "t-1"]);
+});
